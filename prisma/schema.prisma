@@ -1,0 +1,353 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  DISTRICT_ADMIN
+  SCHOOL_ADMIN
+  DIRECTOR
+  TEACHER
+  STUDENT
+  PARENT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  EXCUSED
+}
+
+enum PaymentStatus {
+  PAID
+  UNPAID
+  PARTIAL
+  OVERDUE
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+model User {
+  id       String     @id @default(uuid())
+  email    String?    @unique
+  username String     @unique
+  password String
+  role     UserRole
+  status   UserStatus @default(ACTIVE)
+
+  districtAdmin DistrictAdmin?
+  schoolAdmin   SchoolAdmin?
+  director      Director?
+  teacher       Teacher?
+  student       Student?
+  parent        Parent?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model District {
+  id     String @id @default(uuid())
+  name   String
+  region String
+  code   String @unique
+
+  schools       School[]
+  districtAdmin DistrictAdmin[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("districts")
+}
+
+model School {
+  id         String  @id @default(uuid())
+  districtId String
+  name       String
+  address    String
+  phone      String?
+  email      String?
+  code       String  @unique
+
+  district     District      @relation(fields: [districtId], references: [id])
+  schoolAdmins SchoolAdmin[]
+  directors    Director[]
+  teachers     Teacher[]
+  students     Student[]
+  classes      Class[]
+  devices      Device[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("schools")
+}
+
+model DistrictAdmin {
+  id         String @id @default(uuid())
+  userId     String @unique
+  districtId String
+  firstName  String
+  lastName   String
+  phone      String
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  district District @relation(fields: [districtId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("district_admins")
+}
+
+model SchoolAdmin {
+  id        String @id @default(uuid())
+  userId    String @unique
+  schoolId  String
+  firstName String
+  lastName  String
+  phone     String
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school School @relation(fields: [schoolId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("school_admins")
+}
+
+model Director {
+  id        String  @id @default(uuid())
+  userId    String  @unique
+  schoolId  String
+  firstName String
+  lastName  String
+  phone     String
+  photo     String?
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school         School          @relation(fields: [schoolId], references: [id])
+  attendanceLogs AttendanceLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("directors")
+}
+
+model Class {
+  id           String @id @default(uuid())
+  schoolId     String
+  grade        Int
+  section      String
+  academicYear String
+
+  school   School    @relation(fields: [schoolId], references: [id])
+  students Student[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([schoolId, grade, section, academicYear])
+  @@map("classes")
+}
+
+model Teacher {
+  id         String   @id @default(uuid())
+  userId     String   @unique
+  schoolId   String
+  firstName  String
+  lastName   String
+  phone      String
+  photo      String?
+  subjects   String[]
+  telegramId String?
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school         School          @relation(fields: [schoolId], references: [id])
+  attendanceLogs AttendanceLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("teachers")
+}
+
+model Student {
+  id          String    @id @default(uuid())
+  userId      String    @unique
+  schoolId    String
+  classId     String
+  firstName   String
+  lastName    String
+  middleName  String?
+  dateOfBirth DateTime?
+  gender      Gender?
+  photo       String?
+  phone       String?
+  telegramId  String?
+
+  isTelegramSubscribed Boolean @default(false)
+  telegramChatId       String?
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school         School          @relation(fields: [schoolId], references: [id])
+  class          Class           @relation(fields: [classId], references: [id])
+  parents        Parent[]
+  attendanceLogs AttendanceLog[]
+  absenceRecords AbsenceRecord[]
+  paymentRecords PaymentRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("students")
+}
+
+model Parent {
+  id           String  @id @default(uuid())
+  userId       String  @unique
+  studentId    String
+  firstName    String
+  lastName     String
+  phone        String
+  telegramId   String?
+  relationship String
+
+  isTelegramSubscribed Boolean @default(false)
+  telegramChatId       String?
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("parents")
+}
+
+model AttendanceLog {
+  id           String           @id @default(uuid())
+  schoolId     String
+  date         DateTime         @default(now())
+  checkInTime  DateTime?
+  checkOutTime DateTime?
+  status       AttendanceStatus
+  lateMinutes  Int              @default(0)
+  deviceId     String?
+
+  studentId  String?
+  teacherId  String?
+  directorId String?
+
+  student  Student?  @relation(fields: [studentId], references: [id])
+  teacher  Teacher?  @relation(fields: [teacherId], references: [id])
+  director Director? @relation(fields: [directorId], references: [id])
+  device   Device?   @relation(fields: [deviceId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([studentId, date])
+  @@index([teacherId, date])
+  @@index([directorId, date])
+  @@map("attendance_logs")
+}
+
+model AbsenceRecord {
+  id        String   @id @default(uuid())
+  studentId String
+  date      DateTime
+  reason    String?
+  isExcused Boolean  @default(false)
+  document  String?
+
+  student Student @relation(fields: [studentId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([studentId, date])
+  @@map("absence_records")
+}
+
+model PaymentRecord {
+  id          String        @id @default(uuid())
+  studentId   String
+  amount      Float
+  paymentDate DateTime
+  status      PaymentStatus @default(UNPAID)
+  type        String
+  description String?
+
+  student Student @relation(fields: [studentId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("payment_records")
+}
+
+model TelegramSubscription {
+  id       String  @id @default(uuid())
+  userId   String
+  chatId   String  @unique
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("telegram_subscriptions")
+}
+
+model SmsLog {
+  id        String   @id @default(uuid())
+  recipient String
+  message   String
+  status    String
+  sentAt    DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  @@map("sms_logs")
+}
+
+model Device {
+  id        String  @id @default(uuid())
+  schoolId  String
+  name      String
+  deviceId  String  @unique
+  ipAddress String
+  port      Int     @default(80)
+  username  String
+  password  String
+  isActive  Boolean @default(true)
+  location  String?
+
+  school         School          @relation(fields: [schoolId], references: [id])
+  attendanceLogs AttendanceLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("devices")
+}
