@@ -17,17 +17,16 @@ export class TelegramService {
     return this.configService.get<string>('TELEGRAM_BOT_TOKEN') || '';
   }
 
-  // Send single message
+  /** Telegram/axios xatosidan qisqa matn oladi (butun error obyektini log qilmaslik uchun). */
+  private getTelegramErrorMessage(error: unknown): string {
+    const err = error as { response?: { data?: { description?: string }; status?: number } };
+    if (err?.response?.data?.description) return err.response.data.description;
+    if (err?.response?.status) return `HTTP ${err.response.status}`;
+    return error instanceof Error ? error.message : 'Unknown error';
+  }
+
   async sendMessage(chatId: string, message: string): Promise<boolean> {
     try {
-      // Dev mode
-      if (this.configService.get<string>('NODE_ENV') === 'development') {
-        this.logger.log(
-          `[TELEGRAM DEV MODE] ChatId: ${chatId}, Message: ${message}`,
-        );
-        return true;
-      }
-
       const botToken = this.getBotToken();
       if (!botToken) {
         this.logger.warn('TELEGRAM_BOT_TOKEN is not set');
@@ -43,10 +42,10 @@ export class TelegramService {
         },
       );
 
-      // TO'G'RI: any sifatida cast
       return (response.data as any)?.ok === true;
     } catch (error) {
-      this.logger.error(`Failed to send Telegram message to ${chatId}`, error);
+      const msg = this.getTelegramErrorMessage(error);
+      this.logger.warn(`Telegram sendMessage failed (chatId=${chatId}): ${msg}`);
       return false;
     }
   }

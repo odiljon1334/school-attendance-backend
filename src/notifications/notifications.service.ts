@@ -109,6 +109,7 @@ export class NotificationsService {
           parent.telegramChatId,
           message,
         );
+
         if (ok) results.telegram.success++;
         else results.telegram.failed++;
       } else {

@@ -29,7 +29,10 @@ export class SmsService {
       // TO'G'RI: any sifatida cast
       return (response.data as any)?.data?.token || '';
     } catch (error) {
-      this.logger.error('Failed to get SMS token', error);
+      const err = error as { response?: { data?: { message?: string } }; message?: string };
+      const msg =
+        err?.response?.data?.message || err?.message || (error instanceof Error ? error.message : 'Unknown error');
+      this.logger.warn(`SMS token failed: ${msg}`);
       throw new Error('SMS authentication failed');
     }
   }
@@ -71,7 +74,10 @@ export class SmsService {
         return false;
       }
     } catch (error) {
-      this.logger.error(`Failed to send SMS to ${phone}`, error);
+      const err = error as { response?: { data?: { message?: string } }; message?: string };
+      const msg =
+        err?.response?.data?.message || err?.message || (error instanceof Error ? error.message : 'Unknown error');
+      this.logger.warn(`SMS send failed (${phone}): ${msg}`);
       await this.logSms(phone, message, 'failed');
       return false;
     }
@@ -108,7 +114,9 @@ export class SmsService {
         },
       });
     } catch (error) {
-      this.logger.error('Failed to log SMS', error);
+      this.logger.warn(
+        `SMS log failed: ${error instanceof Error ? error.message : 'Unknown'}`,
+      );
     }
   }
 

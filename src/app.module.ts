@@ -12,6 +12,10 @@ import { TeachersModule } from './teachers/teachers.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { PaymentsModule } from './payments/payments.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { ParentsModule } from './parents/parents.module';
+import { HikvisionModule } from './hikvision/hikvision.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { ClassesModule } from './classes/classes.module';
 
 @Module({
   imports: [
@@ -24,11 +28,15 @@ import { NotificationsModule } from './notifications/notifications.module';
     MembersModule,
     DistrictsModule,
     SchoolsModule,
+    ClassesModule,
     StudentsModule,
     TeachersModule,
     AttendanceModule,
     PaymentsModule,
     NotificationsModule,
+    ParentsModule,
+    DashboardModule,
+    HikvisionModule,
   ],
   controllers: [AppController],
   providers: [AppService],
