@@ -31,6 +31,7 @@ import {
     @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
     @HttpCode(HttpStatus.CREATED)
     createDevice(@Body() createDeviceDto: CreateDeviceDto) {
+      console.log('createDevice => Body:', createDeviceDto)
       return this.hikvisionService.createDevice(createDeviceDto);
     }
   

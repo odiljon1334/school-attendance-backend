@@ -8,6 +8,8 @@ import {
   HttpCode,
   HttpStatus,
   Query,
+  Delete,
+  Patch,
 } from '@nestjs/common';
 import { StudentsService } from './students.service';
 import { CreateStudentDto, UpdateStudentDto } from './dto/student.dto';
@@ -114,13 +116,13 @@ export class StudentsController {
     return this.studentsService.getPaymentHistory(id);
   }
 
-  @Post(':id')
+  @Patch(':id')
   @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
   update(@Param('id') id: string, @Body() updateStudentDto: UpdateStudentDto) {
     return this.studentsService.update(id, updateStudentDto);
   }
 
-  @Post(':id/remove')
+  @Delete(':id/remove')
   @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
   @HttpCode(HttpStatus.OK)
   remove(@Param('id') id: string) {
