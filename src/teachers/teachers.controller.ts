@@ -10,13 +10,14 @@ import {
   HttpCode,
   HttpStatus,
   Query,
+  Request,
 } from '@nestjs/common';
 import { TeachersService } from './teachers.service';
-import { CreateTeacherDto, UpdateTeacherDto } from './dto/teacher.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@prisma/client';
+import { CreateTeacherDto, UpdateTeacherDto } from './dto/teacher.dto';
 
 @Controller('teachers')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -24,7 +25,12 @@ export class TeachersController {
   constructor(private readonly teachersService: TeachersService) {}
 
   @Post()
-  @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.DISTRICT_ADMIN,
+    UserRole.SCHOOL_ADMIN,
+    UserRole.DIRECTOR,
+  )
   @HttpCode(HttpStatus.CREATED)
   create(@Body() createTeacherDto: CreateTeacherDto) {
     return this.teachersService.create(createTeacherDto);
@@ -41,6 +47,12 @@ export class TeachersController {
     return this.teachersService.findAll(schoolId);
   }
 
+  @Get('profile')
+  @Roles(UserRole.TEACHER)
+  getProfile(@Request() req: any) {
+    return this.teachersService.getProfile(req.user.id);
+  }
+
   @Get(':id')
   @Roles(
     UserRole.SUPER_ADMIN,
@@ -53,18 +65,6 @@ export class TeachersController {
     return this.teachersService.findOne(id);
   }
 
-  @Get(':id/statistics')
-  @Roles(
-    UserRole.SUPER_ADMIN,
-    UserRole.DISTRICT_ADMIN,
-    UserRole.SCHOOL_ADMIN,
-    UserRole.DIRECTOR,
-    UserRole.TEACHER,
-  )
-  getStatistics(@Param('id') id: string) {
-    return this.teachersService.getStatistics(id);
-  }
-
   @Get(':id/attendance')
   @Roles(
     UserRole.SUPER_ADMIN,
@@ -73,22 +73,35 @@ export class TeachersController {
     UserRole.DIRECTOR,
     UserRole.TEACHER,
   )
-  getAttendanceHistory(
+  getAttendanceStats(
     @Param('id') id: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {
-    return this.teachersService.getAttendanceHistory(id, startDate, endDate);
+    return this.teachersService.getAttendanceStats(
+      id,
+      startDate ? new Date(startDate) : undefined,
+      endDate ? new Date(endDate) : undefined,
+    );
   }
 
   @Patch(':id')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.DISTRICT_ADMIN,
+    UserRole.SCHOOL_ADMIN,
+    UserRole.DIRECTOR,
+  )
   update(@Param('id') id: string, @Body() updateTeacherDto: UpdateTeacherDto) {
     return this.teachersService.update(id, updateTeacherDto);
   }
 
   @Delete(':id')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.DISTRICT_ADMIN,
+    UserRole.SCHOOL_ADMIN,
+  )
   @HttpCode(HttpStatus.OK)
   remove(@Param('id') id: string) {
     return this.teachersService.remove(id);

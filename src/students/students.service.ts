@@ -1,77 +1,76 @@
-import {
-  Injectable,
-  NotFoundException,
-  ConflictException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateStudentDto, UpdateStudentDto } from './dto/student.dto';
+import { CreateStudentDto } from './dto/student.dto';
+import { UpdateStudentDto } from './dto/student.dto';
 import * as bcrypt from 'bcrypt';
-import { UserRole } from '@prisma/client';
 
 @Injectable()
 export class StudentsService {
   constructor(private prisma: PrismaService) {}
 
   async create(createStudentDto: CreateStudentDto) {
-    // Check if username already exists
-    const existingUser = await this.prisma.user.findUnique({
-      where: { username: createStudentDto.username },
-    });
-
-    if (existingUser) {
-      throw new ConflictException('Username already exists');
+    // Optional: Create user account (only if needed for login)
+    let userId = null;
+    
+    // Students don't need user accounts by default (face recognition only)
+    // But we can create one for future use
+    if (createStudentDto.email) {
+      const user = await this.prisma.user.create({
+        data: {
+          username: `student_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+          password: await bcrypt.hash('default123', 10), // Default password
+          email: createStudentDto.email,
+          role: 'STUDENT',
+          status: 'ACTIVE',
+        },
+      });
+      userId = user.id;
     }
 
-    // Check if school exists
-    const school = await this.prisma.school.findUnique({
-      where: { id: createStudentDto.schoolId },
-    });
-
-    if (!school) {
-      throw new NotFoundException('School not found');
-    }
-
-    // Check if class exists
-    const classExists = await this.prisma.class.findUnique({
-      where: { id: createStudentDto.classId },
-    });
-
-    if (!classExists) {
-      throw new NotFoundException('Class not found');
-    }
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(createStudentDto.password, 10);
-
-    // Create user first
-    const user = await this.prisma.user.create({
-      data: {
-        username: createStudentDto.username,
-        email: createStudentDto.email,
-        password: hashedPassword,
-        role: UserRole.STUDENT,
-        status: 'ACTIVE',
-      },
-    });
-
-    // Create student profile
+    // Create student
     const student = await this.prisma.student.create({
       data: {
-        userId: user.id,
+        userId,
         schoolId: createStudentDto.schoolId,
         classId: createStudentDto.classId,
         firstName: createStudentDto.firstName,
         lastName: createStudentDto.lastName,
         middleName: createStudentDto.middleName,
-        dateOfBirth: createStudentDto.dateOfBirth
-          ? new Date(createStudentDto.dateOfBirth)
-          : null,
+        dateOfBirth: createStudentDto.dateOfBirth,
         gender: createStudentDto.gender,
         phone: createStudentDto.phone,
         telegramId: createStudentDto.telegramId,
-        isTelegramSubscribed: createStudentDto.isTelegramSubscribed || false,
-        telegramChatId: createStudentDto.telegramChatId,
+        photo: createStudentDto.photo, // FIXED: was faceImage
+        enrollNumber: createStudentDto.enrollNumber,
       },
+      include: {
+        user: true,
+        school: true,
+        class: true,
+      },
+    });
+
+    // TODO: Upload photo to turnstile device if photo exists
+    // if (student.photo) {
+    //   await this.uploadToTurnstile(student.id, student.photo);
+    // }
+
+    return student;
+  }
+
+  async findAll(schoolId?: string, classId?: string) {
+    const where: any = {};
+    
+    if (schoolId) {
+      where.schoolId = schoolId;
+    }
+    
+    if (classId) {
+      where.classId = classId;
+    }
+
+    return this.prisma.student.findMany({
+      where,
       include: {
         user: {
           select: {
@@ -82,72 +81,12 @@ export class StudentsService {
             status: true,
           },
         },
-        school: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-          },
-        },
-        class: {
-          select: {
-            id: true,
-            grade: true,
-            section: true,
-            academicYear: true,
-          },
-        },
-      },
-    });
-
-    return student;
-  }
-
-  async findAll(schoolId?: string, classId?: string) {
-    const where: any = {};
-
-    if (schoolId) {
-      where.schoolId = schoolId;
-    }
-
-    if (classId) {
-      where.classId = classId;
-    }
-
-    return this.prisma.student.findMany({
-      where,
-      include: {
-        user: {
-          select: {
-            username: true,
-            email: true,
-            status: true,
-          },
-        },
-        school: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-          },
-        },
-        class: {
-          select: {
-            id: true,
-            grade: true,
-            section: true,
-          },
-        },
-        _count: {
-          select: {
-            attendanceLogs: true,
-            absenceRecords: true,
-            paymentRecords: true,
-          },
-        },
+        school: true,
+        class: true,
+        parents: true,
       },
       orderBy: {
-        createdAt: 'desc',
+        lastName: 'asc',
       },
     });
   }
@@ -165,39 +104,18 @@ export class StudentsService {
             status: true,
           },
         },
-        school: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-            address: true,
-            phone: true,
+        school: true,
+        class: true,
+        parents: true,
+        attendances: {
+          orderBy: {
+            date: 'desc',
           },
+          take: 30, // Last 30 days
         },
-        class: {
-          select: {
-            id: true,
-            grade: true,
-            section: true,
-            academicYear: true,
-          },
-        },
-        parents: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            phone: true,
-            relationship: true,
-            telegramId: true,
-            isTelegramSubscribed: true,
-          },
-        },
-        _count: {
-          select: {
-            attendanceLogs: true,
-            absenceRecords: true,
-            paymentRecords: true,
+        payments: {
+          orderBy: {
+            dueDate: 'desc',
           },
         },
       },
@@ -212,228 +130,101 @@ export class StudentsService {
 
   async update(id: string, updateStudentDto: UpdateStudentDto) {
     // Check if student exists
-    await this.findOne(id);
-
-    // Check if new class exists (if updating classId)
-    if (updateStudentDto.classId) {
-      const classExists = await this.prisma.class.findUnique({
-        where: { id: updateStudentDto.classId },
-      });
-
-      if (!classExists) {
-        throw new NotFoundException('Class not found');
-      }
-    }
-
-    const updateData: any = { ...updateStudentDto };
-
-    if (updateStudentDto.dateOfBirth) {
-      updateData.dateOfBirth = new Date(updateStudentDto.dateOfBirth);
-    }
-
-    return this.prisma.student.update({
+    const existingStudent = await this.prisma.student.findUnique({
       where: { id },
-      data: updateData,
+    });
+
+    if (!existingStudent) {
+      throw new NotFoundException(`Student with ID ${id} not found`);
+    }
+
+    // Update student
+    const student = await this.prisma.student.update({
+      where: { id },
+      data: {
+        firstName: updateStudentDto.firstName,
+        lastName: updateStudentDto.lastName,
+        middleName: updateStudentDto.middleName,
+        dateOfBirth: updateStudentDto.dateOfBirth,
+        gender: updateStudentDto.gender,
+        phone: updateStudentDto.phone,
+        telegramId: updateStudentDto.telegramId,
+        photo: updateStudentDto.photo, // FIXED: was faceImage
+      },
       include: {
-        user: {
-          select: {
-            username: true,
-            email: true,
-            status: true,
-          },
-        },
-        school: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-          },
-        },
-        class: {
-          select: {
-            id: true,
-            grade: true,
-            section: true,
-          },
-        },
+        user: true,
+        school: true,
+        class: true,
+        parents: true,
       },
     });
+
+    // TODO: Update photo on turnstile device if changed
+    // if (updateStudentDto.photo && updateStudentDto.photo !== existingStudent.photo) {
+    //   await this.uploadToTurnstile(student.id, student.photo);
+    // }
+
+    return student;
   }
 
   async remove(id: string) {
     // Check if student exists
-    const student = await this.findOne(id);
-
-    // Use transaction to ensure all deletes succeed or all fail
-    await this.prisma.$transaction(async (prisma) => {
-      // Delete related records first
-      await prisma.paymentRecord.deleteMany({ where: { studentId: id } });
-      await prisma.absenceRecord.deleteMany({ where: { studentId: id } });
-      await prisma.attendanceLog.deleteMany({ where: { studentId: id } });
-      await prisma.parent.deleteMany({ where: { studentId: id } });
-
-      // Delete student
-      await prisma.student.delete({ where: { id } });
-
-      // Delete user
-      await prisma.user.delete({ where: { id: student.userId } });
+    const student = await this.prisma.student.findUnique({
+      where: { id },
+      include: { user: true },
     });
 
-    return {
-      message: 'Student and all related records deleted successfully',
-      deletedStudentId: id,
-    };
+    if (!student) {
+      throw new NotFoundException(`Student with ID ${id} not found`);
+    }
+
+    // Delete related records first
+    await this.prisma.attendance.deleteMany({ where: { studentId: id } });
+    await this.prisma.payment.deleteMany({ where: { studentId: id } });
+    await this.prisma.parent.deleteMany({ where: { studentId: id } });
+
+    // Delete student
+    await this.prisma.student.delete({ where: { id } });
+
+    // Delete user account if exists
+    if (student.userId) {
+      await this.prisma.user.delete({ where: { id: student.userId } });
+    }
+
+    // TODO: Remove from turnstile device
+    // await this.removeFromTurnstile(id);
+
+    return { message: 'Student deleted successfully' };
   }
 
-  async getAttendanceHistory(id: string, startDate?: string, endDate?: string) {
-    await this.findOne(id);
-
-    const where: any = { studentId: id };
+  // Get student attendance statistics
+  async getAttendanceStats(studentId: string, startDate?: Date, endDate?: Date) {
+    const where: any = { studentId };
 
     if (startDate || endDate) {
       where.date = {};
-      if (startDate) {
-        where.date.gte = new Date(startDate);
-      }
-      if (endDate) {
-        where.date.lte = new Date(endDate);
-      }
+      if (startDate) where.date.gte = startDate;
+      if (endDate) where.date.lte = endDate;
     }
 
-    const attendance = await this.prisma.attendanceLog.findMany({
+    const attendances = await this.prisma.attendance.findMany({
       where,
-      orderBy: {
-        date: 'desc',
-      },
+      orderBy: { date: 'desc' },
     });
 
-    // Calculate statistics
-    const stats = {
-      total: attendance.length,
-      present: attendance.filter((a) => a.status === 'PRESENT').length,
-      late: attendance.filter((a) => a.status === 'LATE').length,
-      absent: attendance.filter((a) => a.status === 'ABSENT').length,
-      excused: attendance.filter((a) => a.status === 'EXCUSED').length,
-      averageLateMinutes:
-        attendance
-          .filter((a) => a.status === 'LATE')
-          .reduce((sum, a) => sum + a.lateMinutes, 0) /
-          attendance.filter((a) => a.status === 'LATE').length || 0,
-    };
+    const total = attendances.length;
+    const present = attendances.filter(a => a.status === 'PRESENT').length;
+    const late = attendances.filter(a => a.status === 'LATE').length;
+    const absent = attendances.filter(a => a.status === 'ABSENT').length;
+    const excused = attendances.filter(a => a.status === 'EXCUSED').length;
 
     return {
-      statistics: stats,
-      attendance,
-    };
-  }
-
-  async getAbsenceRecords(id: string) {
-    await this.findOne(id);
-
-    return this.prisma.absenceRecord.findMany({
-      where: { studentId: id },
-      orderBy: {
-        date: 'desc',
-      },
-    });
-  }
-
-  async getPaymentHistory(id: string) {
-    await this.findOne(id);
-
-    const payments = await this.prisma.paymentRecord.findMany({
-      where: { studentId: id },
-      orderBy: {
-        paymentDate: 'desc',
-      },
-    });
-
-    // Calculate payment statistics
-    const stats = {
-      total: payments.length,
-      paid: payments.filter((p) => p.status === 'PAID').length,
-      unpaid: payments.filter((p) => p.status === 'UNPAID').length,
-      partial: payments.filter((p) => p.status === 'PARTIAL').length,
-      overdue: payments.filter((p) => p.status === 'OVERDUE').length,
-      totalAmount: payments.reduce((sum, p) => sum + p.amount, 0),
-      paidAmount: payments
-        .filter((p) => p.status === 'PAID')
-        .reduce((sum, p) => sum + p.amount, 0),
-      unpaidAmount: payments
-        .filter((p) => p.status === 'UNPAID' || p.status === 'OVERDUE')
-        .reduce((sum, p) => sum + p.amount, 0),
-    };
-
-    return {
-      statistics: stats,
-      payments,
-    };
-  }
-
-  async getStatistics(id: string) {
-    const student = await this.findOne(id);
-
-    // Get today's date
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // Today's attendance
-    const todayAttendance = await this.prisma.attendanceLog.findFirst({
-      where: {
-        studentId: id,
-        date: {
-          gte: today,
-        },
-      },
-    });
-
-    // This month's attendance
-    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const monthAttendance = await this.prisma.attendanceLog.findMany({
-      where: {
-        studentId: id,
-        date: {
-          gte: startOfMonth,
-        },
-      },
-    });
-
-    const monthStats = {
-      present: monthAttendance.filter((a) => a.status === 'PRESENT').length,
-      late: monthAttendance.filter((a) => a.status === 'LATE').length,
-      absent: monthAttendance.filter((a) => a.status === 'ABSENT').length,
-    };
-
-    // Payment status
-    const unpaidPayments = await this.prisma.paymentRecord.count({
-      where: {
-        studentId: id,
-        status: {
-          in: ['UNPAID', 'OVERDUE'],
-        },
-      },
-    });
-
-    return {
-      student: {
-        id: student.id,
-        fullName: `${student.firstName} ${student.lastName}`,
-        class: `${student.class.grade}-${student.class.section}`,
-      },
-      attendance: {
-        today: todayAttendance
-          ? {
-              status: todayAttendance.status,
-              checkInTime: todayAttendance.checkInTime,
-              lateMinutes: todayAttendance.lateMinutes,
-            }
-          : null,
-        thisMonth: monthStats,
-      },
-      payments: {
-        unpaidCount: unpaidPayments,
-      },
-      telegramSubscribed: student.isTelegramSubscribed,
+      total,
+      present,
+      late,
+      absent,
+      excused,
+      attendanceRate: total > 0 ? ((present + late) / total * 100).toFixed(2) : '0',
     };
   }
 }

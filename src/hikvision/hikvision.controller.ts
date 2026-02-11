@@ -34,14 +34,14 @@ import {
       console.log('createDevice => Body:', createDeviceDto)
       return this.hikvisionService.createDevice(createDeviceDto);
     }
-  
+
     @Get('devices')
     @UseGuards(JwtAuthGuard, RolesGuard)
     @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR)
     findAllDevices(@Query('schoolId') schoolId?: string) {
       return this.hikvisionService.findAll(schoolId);
     }
-  
+    
     @Get('devices/:id')
     @UseGuards(JwtAuthGuard, RolesGuard)
     @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR)
@@ -53,6 +53,7 @@ import {
     @UseGuards(JwtAuthGuard, RolesGuard)
     @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
     testDevice(@Param('id') id: string) {
+      console.log('Device Test Endpoint:', id)
       return this.hikvisionService.testDevice(id);
     }
   

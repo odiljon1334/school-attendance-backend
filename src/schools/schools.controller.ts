@@ -12,11 +12,11 @@ import {
   Query,
 } from '@nestjs/common';
 import { SchoolsService } from './schools.service';
-import { CreateSchoolDto, UpdateSchoolDto } from './dto/school.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@prisma/client';
+import { CreateSchoolDto, UpdateSchoolDto } from './dto/school.dto';
 
 @Controller('schools')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -31,7 +31,11 @@ export class SchoolsController {
   }
 
   @Get()
-  @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.DISTRICT_ADMIN,
+    UserRole.SCHOOL_ADMIN,
+  )
   findAll(@Query('districtId') districtId?: string) {
     return this.schoolsService.findAll(districtId);
   }
@@ -58,29 +62,6 @@ export class SchoolsController {
     return this.schoolsService.getStatistics(id);
   }
 
-  @Get(':id/classes')
-  @Roles(
-    UserRole.SUPER_ADMIN,
-    UserRole.DISTRICT_ADMIN,
-    UserRole.SCHOOL_ADMIN,
-    UserRole.DIRECTOR,
-    UserRole.TEACHER,
-  )
-  getClasses(@Param('id') id: string) {
-    return this.schoolsService.getClasses(id);
-  }
-
-  @Get(':id/devices')
-  @Roles(
-    UserRole.SUPER_ADMIN,
-    UserRole.DISTRICT_ADMIN,
-    UserRole.SCHOOL_ADMIN,
-    UserRole.DIRECTOR,
-  )
-  getDevices(@Param('id') id: string) {
-    return this.schoolsService.getDevices(id);
-  }
-
   @Patch(':id')
   @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
   update(@Param('id') id: string, @Body() updateSchoolDto: UpdateSchoolDto) {
@@ -89,7 +70,7 @@ export class SchoolsController {
 
   @Delete(':id')
   @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN)
-  @HttpCode(HttpStatus.NO_CONTENT)
+  @HttpCode(HttpStatus.OK)
   remove(@Param('id') id: string) {
     return this.schoolsService.remove(id);
   }

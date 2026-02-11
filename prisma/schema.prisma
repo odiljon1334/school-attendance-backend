@@ -8,19 +8,24 @@ datasource db {
 }
 
 enum UserRole {
-  SUPER_ADMIN
-  DISTRICT_ADMIN
-  SCHOOL_ADMIN
-  DIRECTOR
-  TEACHER
-  STUDENT
-  PARENT
+  SUPER_ADMIN      // Web only
+  DISTRICT_ADMIN   // Web only
+  SCHOOL_ADMIN     // Web only
+  DIRECTOR         // Web + Telegram + Turnstile
+  TEACHER          // Web + Telegram + Turnstile
+  STUDENT          // Turnstile only (Face Recognition)
+  PARENT           // Telegram only
 }
 
 enum UserStatus {
   ACTIVE
   INACTIVE
   SUSPENDED
+}
+
+enum Gender {
+  MALE
+  FEMALE
 }
 
 enum AttendanceStatus {
@@ -31,323 +36,272 @@ enum AttendanceStatus {
 }
 
 enum PaymentStatus {
+  PENDING
   PAID
-  UNPAID
-  PARTIAL
   OVERDUE
 }
 
-enum Gender {
-  MALE
-  FEMALE
-}
-
 model User {
-  id       String     @id @default(uuid())
-  email    String?    @unique
-  username String     @unique
-  password String
-  role     UserRole
-  status   UserStatus @default(ACTIVE)
-
-  districtAdmin DistrictAdmin?
-  schoolAdmin   SchoolAdmin?
-  director      Director?
-  teacher       Teacher?
+  id            String      @id @default(uuid())
+  username      String      @unique
+  password      String
+  email         String?
+  role          UserRole
+  status        UserStatus  @default(ACTIVE)
+  
   student       Student?
+  teacher       Teacher?
+  director      Director?
   parent        Parent?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("users")
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 }
 
 model District {
-  id     String @id @default(uuid())
-  name   String
-  region String
-  code   String @unique
-
+  id            String      @id @default(uuid())
+  name          String
+  region        String
+  code          String      @unique
+  
   schools       School[]
-  districtAdmin DistrictAdmin[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("districts")
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 }
 
 model School {
-  id         String  @id @default(uuid())
-  districtId String
-  name       String
-  address    String
-  phone      String?
-  email      String?
-  code       String  @unique
-
-  district     District      @relation(fields: [districtId], references: [id])
-  schoolAdmins SchoolAdmin[]
-  directors    Director[]
-  teachers     Teacher[]
-  students     Student[]
-  classes      Class[]
-  devices      Device[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("schools")
-}
-
-model DistrictAdmin {
-  id         String @id @default(uuid())
-  userId     String @unique
-  districtId String
-  firstName  String
-  lastName   String
-  phone      String
-
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  district District @relation(fields: [districtId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("district_admins")
-}
-
-model SchoolAdmin {
-  id        String @id @default(uuid())
-  userId    String @unique
-  schoolId  String
-  firstName String
-  lastName  String
-  phone     String
-
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  school School @relation(fields: [schoolId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("school_admins")
-}
-
-model Director {
-  id        String  @id @default(uuid())
-  userId    String  @unique
-  schoolId  String
-  firstName String
-  lastName  String
-  phone     String
-  photo     String?
-
-  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  school         School          @relation(fields: [schoolId], references: [id])
-  attendanceLogs AttendanceLog[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("directors")
+  id            String      @id @default(uuid())
+  districtId    String?
+  district      District?   @relation(fields: [districtId], references: [id])
+  
+  name          String
+  code          String      @unique
+  address       String
+  phone         String?
+  email         String?
+  
+  classes       Class[]
+  students      Student[]
+  teachers      Teacher[]
+  directors     Director[]
+  attendances   Attendance[]
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 }
 
 model Class {
-  id           String @id @default(uuid())
-  schoolId     String
-  grade        Int
-  section      String
-  academicYear String
-
-  school   School    @relation(fields: [schoolId], references: [id])
-  students Student[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
+  id            String      @id @default(uuid())
+  schoolId      String
+  school        School      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  grade         Int
+  section       String
+  academicYear  String
+  
+  students      Student[]
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
   @@unique([schoolId, grade, section, academicYear])
-  @@map("classes")
 }
 
-model Teacher {
-  id         String   @id @default(uuid())
-  userId     String   @unique
-  schoolId   String
-  firstName  String
-  lastName   String
-  phone      String
-  photo      String?
-  subjects   String[]
-  telegramId String?
-
-  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  school         School          @relation(fields: [schoolId], references: [id])
-  attendanceLogs AttendanceLog[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("teachers")
-}
-
+// ============================
+// STUDENT - Turniket uchun
+// ============================
 model Student {
-  id          String    @id @default(uuid())
-  userId      String    @unique
-  schoolId    String
-  classId     String
-  firstName   String
-  lastName    String
-  middleName  String?
-  dateOfBirth DateTime?
-  gender      Gender?
-  photo       String?
-  phone       String?
-  telegramId  String?
-
-  isTelegramSubscribed Boolean @default(false)
-  telegramChatId       String?
-
-  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  school         School          @relation(fields: [schoolId], references: [id])
-  class          Class           @relation(fields: [classId], references: [id])
-  parents        Parent[]
-  attendanceLogs AttendanceLog[]
-  absenceRecords AbsenceRecord[]
-  paymentRecords PaymentRecord[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("students")
+  id            String      @id @default(uuid())
+  userId        String?     @unique
+  user          User?       @relation(fields: [userId], references: [id])
+  
+  schoolId      String
+  school        School      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classId       String
+  class         Class       @relation(fields: [classId], references: [id])
+  
+  // Personal info
+  firstName     String
+  lastName      String
+  middleName    String?
+  dateOfBirth   DateTime?
+  gender        Gender
+  phone         String?
+  telegramId    String?
+  
+  // CRITICAL: Photo for turnstile face recognition
+  // Format: JPEG/PNG base64 or file path
+  // File naming: {studentId}_2_0_{studentId}_0.jpg
+  photo         String?     // Passport-style photo for face recognition
+  
+  // Additional
+  enrollNumber  String?     @unique  // For turnstile device ID
+  
+  parents       Parent[]
+  attendances   Attendance[]
+  payments      Payment[]
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  @@index([schoolId])
+  @@index([classId])
 }
 
+// ============================
+// TEACHER - Turniket uchun
+// ============================
+model Teacher {
+  id            String      @id @default(uuid())
+  userId        String      @unique
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  schoolId      String
+  school        School      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  // Personal info
+  firstName     String
+  lastName      String
+  phone         String
+  telegramId    String?
+  subjects      String[]
+  
+  // CRITICAL: Photo for turnstile face recognition
+  photo         String?     // Passport-style photo
+  
+  // Additional
+  enrollNumber  String?     @unique  // For turnstile device ID
+  
+  attendances   Attendance[]
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  @@index([schoolId])
+}
+
+// ============================
+// DIRECTOR - Turniket uchun
+// ============================
+model Director {
+  id            String      @id @default(uuid())
+  userId        String      @unique
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  schoolId      String
+  school        School      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  
+  // Personal info
+  firstName     String
+  lastName      String
+  phone         String
+  telegramId    String?
+  
+  // CRITICAL: Photo for turnstile face recognition
+  photo         String?     // Passport-style photo
+  
+  // Additional
+  enrollNumber  String?     @unique  // For turnstile device ID
+  
+  attendances   Attendance[]
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  @@index([schoolId])
+}
+
+// ============================
+// PARENT - Telegram only (NO photo needed)
+// ============================
 model Parent {
-  id           String  @id @default(uuid())
-  userId       String  @unique
-  studentId    String
-  firstName    String
-  lastName     String
-  phone        String
-  telegramId   String?
-  relationship String
-
-  isTelegramSubscribed Boolean @default(false)
-  telegramChatId       String?
-
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  student Student @relation(fields: [studentId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("parents")
+  id               String      @id @default(uuid())
+  userId           String?     @unique
+  user             User?       @relation(fields: [userId], references: [id])
+  
+  studentId        String
+  student          Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  firstName        String
+  lastName         String
+  phone            String      @unique
+  telegramId       String?     @unique
+  telegramChatId   String?
+  isTelegramActive Boolean     @default(false)
+  
+  relationship     String      // father, mother, guardian
+  
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 }
 
-model AttendanceLog {
-  id           String           @id @default(uuid())
-  schoolId     String
-  date         DateTime         @default(now())
-  checkInTime  DateTime?
-  checkOutTime DateTime?
-  status       AttendanceStatus
-  lateMinutes  Int              @default(0)
-  deviceId     String?
-
-  studentId  String?
-  teacherId  String?
-  directorId String?
-
-  student  Student?  @relation(fields: [studentId], references: [id])
-  teacher  Teacher?  @relation(fields: [teacherId], references: [id])
-  director Director? @relation(fields: [directorId], references: [id])
-  device   Device?   @relation(fields: [deviceId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([studentId, date])
-  @@index([teacherId, date])
-  @@index([directorId, date])
-  @@map("attendance_logs")
-}
-
-model AbsenceRecord {
-  id        String   @id @default(uuid())
-  studentId String
-  date      DateTime
-  reason    String?
-  isExcused Boolean  @default(false)
-  document  String?
-
-  student Student @relation(fields: [studentId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
+model Attendance {
+  id            String           @id @default(uuid())
+  schoolId      String
+  school        School           @relation(fields: [schoolId], references: [id])
+  
+  // Polymorphic - student OR teacher OR director
+  studentId     String?
+  student       Student?         @relation(fields: [studentId], references: [id])
+  teacherId     String?
+  teacher       Teacher?         @relation(fields: [teacherId], references: [id])
+  directorId    String?
+  director      Director?        @relation(fields: [directorId], references: [id])
+  
+  date          DateTime
+  status        AttendanceStatus
+  checkInTime   DateTime?
+  checkOutTime  DateTime?
+  lateMinutes   Int?
+  deviceId      String?          // Turnstile device ID
+  notes         String?
+  
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  
   @@unique([studentId, date])
-  @@map("absence_records")
+  @@unique([teacherId, date])
+  @@unique([directorId, date])
+  @@index([schoolId, date])
 }
 
-model PaymentRecord {
-  id          String        @id @default(uuid())
-  studentId   String
-  amount      Float
-  paymentDate DateTime
-  status      PaymentStatus @default(UNPAID)
-  type        String
-  description String?
-
-  student Student @relation(fields: [studentId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("payment_records")
+model Payment {
+  id            String         @id @default(uuid())
+  studentId     String
+  student       Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  amount        Float
+  dueDate       DateTime
+  paidDate      DateTime?
+  status        PaymentStatus  @default(PENDING)
+  month         String         // "2026-02"
+  academicYear  String
+  notes         String?
+  
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  
+  @@unique([studentId, month])
+  @@index([studentId])
+  @@index([status])
 }
 
-model TelegramSubscription {
-  id       String  @id @default(uuid())
-  userId   String
-  chatId   String  @unique
-  isActive Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("telegram_subscriptions")
-}
-
-model SmsLog {
-  id        String   @id @default(uuid())
-  recipient String
-  message   String
-  status    String
-  sentAt    DateTime @default(now())
-
-  createdAt DateTime @default(now())
-
-  @@map("sms_logs")
-}
-
-model Device {
-  id        String  @id @default(uuid())
-  schoolId  String
-  name      String
-  deviceId  String  @unique
-  ipAddress String
-  port      Int     @default(80)
-  username  String
-  password  String
-  isActive  Boolean @default(true)
-  location  String?
-
-  school         School          @relation(fields: [schoolId], references: [id])
-  attendanceLogs AttendanceLog[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("devices")
+model Notification {
+  id            String      @id @default(uuid())
+  recipientType String      // PARENT, TEACHER, DIRECTOR
+  recipientId   String
+  
+  type          String      // ATTENDANCE, PAYMENT, REMINDER
+  title         String
+  message       String
+  sentVia       String      // TELEGRAM, SMS
+  
+  isSent        Boolean     @default(false)
+  sentAt        DateTime?
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  @@index([recipientId, isSent])
 }

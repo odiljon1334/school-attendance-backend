@@ -8,6 +8,7 @@ import {
 import { UserRole } from '@prisma/client';
 
 export class RegisterDto {
+  [x: string]: any;
   @IsEmail()
   @IsOptional()
   email?: string;

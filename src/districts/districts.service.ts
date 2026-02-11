@@ -1,10 +1,7 @@
-import {
-  Injectable,
-  NotFoundException,
-  ConflictException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateDistrictDto, UpdateDistrictDto } from './dto/district.dto';
+import { CreateDistrictDto } from './dto/district.dto';
+import { UpdateDistrictDto } from './dto/district.dto';
 
 @Injectable()
 export class DistrictsService {
@@ -12,12 +9,12 @@ export class DistrictsService {
 
   async create(createDistrictDto: CreateDistrictDto) {
     // Check if code already exists
-    const existingDistrict = await this.prisma.district.findUnique({
+    const existing = await this.prisma.district.findUnique({
       where: { code: createDistrictDto.code },
     });
 
-    if (existingDistrict) {
-      throw new ConflictException('District code already exists');
+    if (existing) {
+      throw new ConflictException(`District with code ${createDistrictDto.code} already exists`);
     }
 
     return this.prisma.district.create({
@@ -38,12 +35,11 @@ export class DistrictsService {
         _count: {
           select: {
             schools: true,
-            districtAdmin: true,
           },
         },
       },
       orderBy: {
-        createdAt: 'desc',
+        name: 'asc',
       },
     });
   }
@@ -53,27 +49,20 @@ export class DistrictsService {
       where: { id },
       include: {
         schools: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-            address: true,
-            phone: true,
-            email: true,
-          },
-        },
-        districtAdmin: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            phone: true,
-            user: {
+          include: {
+            _count: {
               select: {
-                username: true,
-                email: true,
+                students: true,
+                teachers: true,
+                directors: true,
+                classes: true,
               },
             },
+          },
+        },
+        _count: {
+          select: {
+            schools: true,
           },
         },
       },
@@ -88,16 +77,22 @@ export class DistrictsService {
 
   async update(id: string, updateDistrictDto: UpdateDistrictDto) {
     // Check if district exists
-    await this.findOne(id);
+    const existing = await this.prisma.district.findUnique({
+      where: { id },
+    });
 
-    // Check if new code already exists (if updating code)
-    if (updateDistrictDto.code) {
-      const existingDistrict = await this.prisma.district.findUnique({
+    if (!existing) {
+      throw new NotFoundException(`District with ID ${id} not found`);
+    }
+
+    // Check if code is being changed and already exists
+    if (updateDistrictDto.code && updateDistrictDto.code !== existing.code) {
+      const codeExists = await this.prisma.district.findUnique({
         where: { code: updateDistrictDto.code },
       });
 
-      if (existingDistrict && existingDistrict.id !== id) {
-        throw new ConflictException('District code already exists');
+      if (codeExists) {
+        throw new ConflictException(`District with code ${updateDistrictDto.code} already exists`);
       }
     }
 
@@ -109,73 +104,103 @@ export class DistrictsService {
 
   async remove(id: string) {
     // Check if district exists
-    await this.findOne(id);
-
-    // Check if district has schools
-    const schoolCount = await this.prisma.school.count({
-      where: { districtId: id },
-    });
-
-    if (schoolCount > 0) {
-      throw new ConflictException(
-        `Cannot delete district with ${schoolCount} schools. Please delete or reassign schools first.`,
-      );
-    }
-
-    return this.prisma.district.delete({
+    const district = await this.prisma.district.findUnique({
       where: { id },
-    });
-  }
-
-  async getStatistics(id: string) {
-    const district = await this.findOne(id);
-
-    const stats = await this.prisma.district.findUnique({
-      where: { id },
-      select: {
+      include: {
         _count: {
           select: {
             schools: true,
-            districtAdmin: true,
           },
         },
       },
     });
 
-    // Get total students and teachers across all schools in district
-    const schools = await this.prisma.school.findMany({
-      where: { districtId: id },
-      select: {
+    if (!district) {
+      throw new NotFoundException(`District with ID ${id} not found`);
+    }
+
+    // Check if district has schools
+    if (district._count.schools > 0) {
+      throw new ConflictException(
+        `Cannot delete district with ${district._count.schools} schools. Delete schools first.`,
+      );
+    }
+
+    await this.prisma.district.delete({ where: { id } });
+
+    return { message: 'District deleted successfully' };
+  }
+
+  // Get district statistics
+  async getStatistics(id: string) {
+    const district = await this.prisma.district.findUnique({
+      where: { id },
+      include: {
+        schools: {
+          include: {
+            _count: {
+              select: {
+                students: true,
+                teachers: true,
+                directors: true,
+                classes: true,
+              },
+            },
+          },
+        },
         _count: {
           select: {
-            students: true,
-            teachers: true,
+            schools: true,
           },
         },
       },
     });
 
-    const totalStudents = schools.reduce(
-      (sum, school) => sum + school._count.students,
-      0,
-    );
-    const totalTeachers = schools.reduce(
-      (sum, school) => sum + school._count.teachers,
-      0,
-    );
+    if (!district) {
+      throw new NotFoundException(`District with ID ${id} not found`);
+    }
+
+    // Calculate totals
+    const totalSchools = district._count.schools;
+    const totalStudents = district.schools.reduce((sum, school) => sum + school._count.students, 0);
+    const totalTeachers = district.schools.reduce((sum, school) => sum + school._count.teachers, 0);
+    const totalDirectors = district.schools.reduce((sum, school) => sum + school._count.directors, 0);
+    const totalClasses = district.schools.reduce((sum, school) => sum + school._count.classes, 0);
+
+    // Get today's attendance
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const attendanceRecords = await this.prisma.attendance.findMany({
+      where: {
+        school: {
+          districtId: id,
+        },
+        date: {
+          gte: today,
+          lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+        },
+      },
+    });
+
+    const presentCount = attendanceRecords.filter(
+      a => a.status === 'PRESENT' || a.status === 'LATE',
+    ).length;
+
+    const attendanceRate = totalStudents > 0 
+      ? ((presentCount / totalStudents) * 100).toFixed(1) 
+      : '0';
 
     return {
-      district: {
-        id: district.id,
-        name: district.name,
-        region: district.region,
-        code: district.code,
-      },
-      statistics: {
-        totalSchools: stats._count.schools,
-        totalAdmins: stats._count.districtAdmin,
-        totalStudents,
-        totalTeachers,
+      totalSchools,
+      totalStudents,
+      totalTeachers,
+      totalDirectors,
+      totalClasses,
+      todayAttendance: {
+        present: presentCount,
+        total: totalStudents,
+        rate: attendanceRate,
       },
     };
   }

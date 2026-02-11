@@ -25,26 +25,20 @@ export class HikvisionService {
       throw new NotFoundException('School not found');
     }
 
-    // Check if device ID already exists
-    const existingDevice = await this.prisma.device.findUnique({ where: { deviceId } });
-    if (existingDevice) {
-      throw new ConflictException('Device ID already exists');
-    }
-
     // Test connection
-    const canConnect = await this.hikvisionApi.testConnection(
-      ipAddress,
-      port || 80,
-      username,
-      password,
-    );
+    // const canConnect = await this.hikvisionApi.testConnection(
+    //   ipAddress,
+    //   port || 80,
+    //   username,
+    //   password,
+    // );
 
-    if (!canConnect) {
-      throw new BadRequestException('Cannot connect to device. Check IP, port, username, and password.');
-    }
+    // if (!canConnect) {
+    //   throw new BadRequestException('Cannot connect to device. Check IP, port, username, and password.');
+    // }
 
     // Create device
-    return this.prisma.device.create({
+    return this.prisma.hikvisionDevice.create({
       data: {
         ...createDeviceDto,
         port: port || 80,
@@ -68,7 +62,7 @@ export class HikvisionService {
       where.schoolId = schoolId;
     }
 
-    return this.prisma.device.findMany({
+    return this.prisma.hikvisionDevice.findMany({
       where,
       include: {
         school: {
@@ -91,7 +85,7 @@ export class HikvisionService {
   }
 
   async findOne(id: string) {
-    const device = await this.prisma.device.findUnique({
+    const device = await this.prisma.hikvisionDevice.findUnique({
       where: { id },
       include: {
         school: {
@@ -138,7 +132,7 @@ export class HikvisionService {
       }
     }
 
-    return this.prisma.device.update({
+    return this.prisma.hikvisionDevice.update({
       where: { id },
       data: updateDeviceDto,
       include: {
@@ -156,7 +150,7 @@ export class HikvisionService {
   async remove(id: string) {
     await this.findOne(id);
 
-    await this.prisma.device.delete({ where: { id } });
+    await this.prisma.hikvisionDevice.delete({ where: { id } });
 
     return { message: 'Device deleted successfully' };
   }
@@ -200,7 +194,7 @@ export class HikvisionService {
     const { deviceId, studentId, teacherId, directorId, faceImage } = registerFaceDto;
 
     // Get device
-    const device = await this.prisma.device.findUnique({ where: { deviceId } });
+    const device = await this.prisma.hikvisionDevice.findUnique({ where: { id: deviceId } });
     if (!device) {
       throw new NotFoundException('Device not found');
     }
@@ -259,12 +253,12 @@ export class HikvisionService {
       success: true,
       message: `Face registered successfully for ${personName}`,
       personId,
-      deviceId: device.deviceId,
+      deviceId: device.id,
     };
   }
 
   async deleteFace(deviceId: string, personId: string) {
-    const device = await this.prisma.device.findUnique({ where: { deviceId } });
+    const device = await this.prisma.hikvisionDevice.findUnique({ where: { id: deviceId } });
     if (!device) {
       throw new NotFoundException('Device not found');
     }
@@ -302,7 +296,7 @@ export class HikvisionService {
     }
 
     // Find device
-    const device = await this.prisma.device.findUnique({ where: { deviceId } });
+    const device = await this.prisma.hikvisionDevice.findUnique({ where: { id: deviceId } });
     if (!device) {
       throw new NotFoundException('Device not found');
     }

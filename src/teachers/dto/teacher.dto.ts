@@ -47,9 +47,21 @@ export class CreateTeacherDto {
   @IsString()
   @IsOptional()
   photo?: string;
+
+  @IsString()
+  @IsOptional()
+  enrollNumber?: string
 }
 
 export class UpdateTeacherDto {
+  @IsString()
+  @IsNotEmpty()
+  password: string;
+
+  @IsEmail()
+  @IsOptional()
+  email?: string;
+
   @IsString()
   @IsOptional()
   firstName?: string;

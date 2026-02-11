@@ -1,58 +1,45 @@
-import {
-  IsString,
-  IsNotEmpty,
-  IsOptional,
-  IsEmail,
-  IsEnum,
-  IsBoolean,
-  IsDateString,
-} from 'class-validator';
+import { IsString, IsEmail, IsOptional, IsEnum, IsBoolean, MinLength } from 'class-validator';
 import { Gender } from '@prisma/client';
 
 export class CreateStudentDto {
-  @IsString()
-  @IsNotEmpty()
-  username: string;
-
-  @IsString()
-  @IsNotEmpty()
-  password: string;
-
   @IsEmail()
   @IsOptional()
   email?: string;
 
   @IsString()
-  @IsNotEmpty()
   schoolId: string;
 
   @IsString()
-  @IsNotEmpty()
   classId: string;
 
   @IsString()
-  @IsNotEmpty()
   firstName: string;
 
   @IsString()
-  @IsNotEmpty()
   lastName: string;
 
   @IsString()
   @IsOptional()
   middleName?: string;
 
-  @IsDateString()
+  @IsString()
   @IsOptional()
   dateOfBirth?: string;
 
   @IsEnum(Gender)
-  @IsOptional()
-  gender?: Gender;
+  gender: Gender;
 
   @IsString()
   @IsOptional()
   phone?: string;
+
+  @IsString()
+  @IsOptional()
+  photo?: string;
+
+  @IsString()
+  @IsOptional()
+  enrollNumber?: string
 
   @IsString()
   @IsOptional()
@@ -65,13 +52,14 @@ export class CreateStudentDto {
   @IsString()
   @IsOptional()
   telegramChatId?: string;
+
+  // ✅ NEW: Face image (base64)
+  @IsString()
+  @IsOptional()
+  faceImage?: string; // Required! data:image/jpeg;base64,...
 }
 
 export class UpdateStudentDto {
-  @IsString()
-  @IsOptional()
-  classId?: string;
-
   @IsString()
   @IsOptional()
   firstName?: string;
@@ -84,7 +72,7 @@ export class UpdateStudentDto {
   @IsOptional()
   middleName?: string;
 
-  @IsDateString()
+  @IsString()
   @IsOptional()
   dateOfBirth?: string;
 
@@ -98,6 +86,14 @@ export class UpdateStudentDto {
 
   @IsString()
   @IsOptional()
+  photo?: string;
+
+  @IsString()
+  @IsOptional()
+  enrollNumber?: string
+
+  @IsString()
+  @IsOptional()
   telegramId?: string;
 
   @IsBoolean()
@@ -108,26 +104,8 @@ export class UpdateStudentDto {
   @IsOptional()
   telegramChatId?: string;
 
+  // ✅ NEW: Face image update (optional)
   @IsString()
   @IsOptional()
-  photo?: string;
-}
-
-export class StudentResponseDto {
-  id: string;
-  userId: string;
-  schoolId: string;
-  classId: string;
-  firstName: string;
-  lastName: string;
-  middleName?: string;
-  dateOfBirth?: Date;
-  gender?: Gender;
-  photo?: string;
-  phone?: string;
-  telegramId?: string;
-  isTelegramSubscribed: boolean;
-  telegramChatId?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  faceImage?: string;
 }

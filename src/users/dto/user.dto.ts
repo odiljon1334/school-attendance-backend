@@ -23,6 +23,10 @@ export class CreateUserDto {
 }
 
 export class UpdateUserDto {
+  @IsString()
+  @MinLength(3)
+  username: string;
+
   @IsEmail()
   @IsOptional()
   email?: string;
@@ -30,6 +34,9 @@ export class UpdateUserDto {
   @IsEnum(UserStatus)
   @IsOptional()
   status?: UserStatus;
+
+  @IsEnum(UserRole)
+  role: UserRole;
 
   @IsString()
   @MinLength(6)
@@ -44,4 +51,8 @@ export class ChangePasswordDto {
   @IsString()
   @MinLength(6)
   newPassword: string;
+
+  @IsString()
+  @MinLength(6)
+  oldPassword: string;
 }

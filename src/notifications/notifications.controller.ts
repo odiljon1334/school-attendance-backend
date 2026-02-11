@@ -3,67 +3,50 @@ import {
   Get,
   Post,
   Body,
+  Param,
+  Delete,
   UseGuards,
   HttpCode,
   HttpStatus,
   Query,
 } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
-import {
-  SendSmsDto,
-  SendSmsBulkDto,
-  SendTelegramDto,
-  SendTelegramBulkDto,
-  NotifyParentsDto,
-  NotifyClassDto,
-  NotifySchoolDto,
-} from './dto/notification.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@prisma/client';
+
+export class SendDailyAttendanceDto {
+  schoolId: string;
+  date?: string;
+}
+
+export class SendPaymentReminderDto {
+  // Called by scheduler - no body needed
+}
 
 @Controller('notifications')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
-  // ─── SMS ──────────────────────────────────────
-  @Post('sms/send')
+  // Get all notifications
+  @Get()
   @Roles(
     UserRole.SUPER_ADMIN,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
-    UserRole.DIRECTOR,
   )
-  @HttpCode(HttpStatus.OK)
-  sendSms(@Body() dto: SendSmsDto) {
-    return this.notificationsService.sendSms(dto);
-  }
-
-  @Post('sms/send-bulk')
-  @Roles(
-    UserRole.SUPER_ADMIN,
-    UserRole.DISTRICT_ADMIN,
-    UserRole.SCHOOL_ADMIN,
-    UserRole.DIRECTOR,
-  )
-  @HttpCode(HttpStatus.OK)
-  sendSmsBulk(@Body() dto: SendSmsBulkDto) {
-    return this.notificationsService.sendSmsBulk(dto);
-  }
-
-  @Get('sms/logs')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
-  getSmsLogs(
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
+  findAll(
+    @Query('recipientId') recipientId?: string,
+    @Query('type') type?: string,
+    @Query('isSent') isSent?: string,
   ) {
-    return this.notificationsService.getSmsLogs(startDate, endDate);
+    return this.notificationsService.findAll(recipientId, type, isSent);
   }
 
-  // ─── TELEGRAM ─────────────────────────────────
-  @Post('telegram/send')
+  // Send daily attendance to parents
+  @Post('daily-attendance')
   @Roles(
     UserRole.SUPER_ADMIN,
     UserRole.DISTRICT_ADMIN,
@@ -71,58 +54,35 @@ export class NotificationsController {
     UserRole.DIRECTOR,
   )
   @HttpCode(HttpStatus.OK)
-  sendTelegram(@Body() dto: SendTelegramDto) {
-    return this.notificationsService.sendTelegram(dto);
+  sendDailyAttendance(@Body() dto: SendDailyAttendanceDto) {
+    const date = dto.date ? new Date(dto.date) : new Date();
+    return this.notificationsService.sendDailyAttendanceToParents(
+      dto.schoolId,
+      date,
+    );
   }
 
-  @Post('telegram/send-bulk')
-  @Roles(
-    UserRole.SUPER_ADMIN,
-    UserRole.DISTRICT_ADMIN,
-    UserRole.SCHOOL_ADMIN,
-    UserRole.DIRECTOR,
-  )
+  // Trigger payment reminders (usually called by scheduler)
+  @Post('payment-reminders')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN)
   @HttpCode(HttpStatus.OK)
-  sendTelegramBulk(@Body() dto: SendTelegramBulkDto) {
-    return this.notificationsService.sendTelegramBulk(dto);
+  sendPaymentReminders() {
+    return this.notificationsService.sendPaymentReminders();
   }
 
-  // ─── NOTIFY PARENTS ───────────────────────────
-  @Post('notify/parents')
-  @Roles(
-    UserRole.SUPER_ADMIN,
-    UserRole.DISTRICT_ADMIN,
-    UserRole.SCHOOL_ADMIN,
-    UserRole.DIRECTOR,
-    UserRole.TEACHER,
-  )
+  // Send payment confirmation
+  @Post('payment-confirmation/:paymentId')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN)
   @HttpCode(HttpStatus.OK)
-  notifyParents(@Body() dto: NotifyParentsDto) {
-    return this.notificationsService.notifyParents(dto);
+  sendPaymentConfirmation(@Param('paymentId') paymentId: string) {
+    return this.notificationsService.sendPaymentConfirmation(paymentId);
   }
 
-  @Post('notify/class')
-  @Roles(
-    UserRole.SUPER_ADMIN,
-    UserRole.DISTRICT_ADMIN,
-    UserRole.SCHOOL_ADMIN,
-    UserRole.DIRECTOR,
-    UserRole.TEACHER,
-  )
+  // Delete notification
+  @Delete(':id')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
   @HttpCode(HttpStatus.OK)
-  notifyClass(@Body() dto: NotifyClassDto) {
-    return this.notificationsService.notifyClass(dto);
-  }
-
-  @Post('notify/school')
-  @Roles(
-    UserRole.SUPER_ADMIN,
-    UserRole.DISTRICT_ADMIN,
-    UserRole.SCHOOL_ADMIN,
-    UserRole.DIRECTOR,
-  )
-  @HttpCode(HttpStatus.OK)
-  notifySchool(@Body() dto: NotifySchoolDto) {
-    return this.notificationsService.notifySchool(dto);
+  remove(@Param('id') id: string) {
+    return this.notificationsService.remove(id);
   }
 }
