@@ -1,18 +1,7 @@
-import {
-  IsString,
-  IsEmail,
-  IsOptional,
-  IsEnum,
-  MinLength,
-} from 'class-validator';
+import { IsString, IsEmail, IsOptional, MinLength, IsEnum } from 'class-validator';
 import { UserRole } from '@prisma/client';
 
 export class RegisterDto {
-  [x: string]: any;
-  @IsEmail()
-  @IsOptional()
-  email?: string;
-
   @IsString()
   @MinLength(3)
   username: string;
@@ -21,32 +10,13 @@ export class RegisterDto {
   @MinLength(6)
   password: string;
 
+  @IsEmail()
+  @IsOptional()
+  email?: string;
+
   @IsEnum(UserRole)
-  role: UserRole;
-
-  @IsString()
-  firstName: string;
-
-  @IsString()
-  lastName: string;
-
-  @IsString()
-  phone: string;
-
-  // Agar SCHOOL_ADMIN, DIRECTOR, TEACHER, STUDENT bo'lsa
-  @IsString()
   @IsOptional()
-  schoolId?: string;
-
-  // Agar DISTRICT_ADMIN bo'lsa
-  @IsString()
-  @IsOptional()
-  districtId?: string;
-
-  // Agar STUDENT bo'lsa
-  @IsString()
-  @IsOptional()
-  classId?: string;
+  role?: UserRole;
 }
 
 export class LoginDto {
@@ -57,12 +27,17 @@ export class LoginDto {
   password: string;
 }
 
-export class AuthResponseDto {
-  access_token: string;
-  user: {
-    id: string;
-    username: string;
-    email?: string;
-    role: UserRole;
-  };
+export class ChangePasswordDto {
+  @IsString()
+  @MinLength(6)
+  oldPassword: string;
+
+  @IsString()
+  @MinLength(6)
+  newPassword: string;
+}
+
+export class ResetPasswordDto {
+  @IsEmail()
+  email: string;
 }

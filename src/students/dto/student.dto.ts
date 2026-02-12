@@ -1,5 +1,6 @@
-import { IsString, IsEmail, IsOptional, IsEnum, IsBoolean, MinLength } from 'class-validator';
+import { IsString, IsEmail, IsOptional, IsEnum, IsBoolean, MinLength, IsDateString } from 'class-validator';
 import { Gender } from '@prisma/client';
+import { CreateParentDto } from 'src/parents/dto/parent.dto';
 
 export class CreateStudentDto {
   @IsEmail()
@@ -22,7 +23,7 @@ export class CreateStudentDto {
   @IsOptional()
   middleName?: string;
 
-  @IsString()
+  @IsDateString()
   @IsOptional()
   dateOfBirth?: string;
 
@@ -40,6 +41,10 @@ export class CreateStudentDto {
   @IsString()
   @IsOptional()
   enrollNumber?: string
+
+  @IsOptional()
+  @IsString()
+  parent?: CreateParentDto;
 
   @IsString()
   @IsOptional()
@@ -72,7 +77,7 @@ export class UpdateStudentDto {
   @IsOptional()
   middleName?: string;
 
-  @IsString()
+  @IsDateString()
   @IsOptional()
   dateOfBirth?: string;
 

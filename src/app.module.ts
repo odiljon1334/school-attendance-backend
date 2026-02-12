@@ -17,6 +17,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { ClassesModule } from './classes/classes.module';
 import { UsersModule } from './users/users.module';
 import { EnrollPicModule } from './enroll-pic/enroll-pic.module';
+import { TurnstileModule } from './turnstile/turnstile.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { EnrollPicModule } from './enroll-pic/enroll-pic.module';
     HikvisionModule,
     UsersModule,
     EnrollPicModule,
+    TurnstileModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,12 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { TurnstileService } from '../turnstile/turnstile.service';
 import { CreateStudentDto } from './dto/student.dto';
 import { UpdateStudentDto } from './dto/student.dto';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class StudentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private turnstileService: TurnstileService,
+  ) {}
 
   async create(createStudentDto: CreateStudentDto) {
     // Optional: Create user account (only if needed for login)
@@ -27,6 +31,11 @@ export class StudentsService {
       userId = user.id;
     }
 
+    // Convert dateOfBirth to Date object
+    const dateOfBirth = createStudentDto.dateOfBirth 
+      ? new Date(createStudentDto.dateOfBirth) 
+      : undefined;
+
     // Create student
     const student = await this.prisma.student.create({
       data: {
@@ -36,11 +45,11 @@ export class StudentsService {
         firstName: createStudentDto.firstName,
         lastName: createStudentDto.lastName,
         middleName: createStudentDto.middleName,
-        dateOfBirth: createStudentDto.dateOfBirth,
+        dateOfBirth: dateOfBirth,
         gender: createStudentDto.gender,
         phone: createStudentDto.phone,
         telegramId: createStudentDto.telegramId,
-        photo: createStudentDto.photo, // FIXED: was faceImage
+        photo: createStudentDto.photo,
         enrollNumber: createStudentDto.enrollNumber,
       },
       include: {
@@ -50,10 +59,50 @@ export class StudentsService {
       },
     });
 
-    // TODO: Upload photo to turnstile device if photo exists
-    // if (student.photo) {
-    //   await this.uploadToTurnstile(student.id, student.photo);
-    // }
+    // Create parent if provided
+    if (createStudentDto.parent) {
+      await this.prisma.parent.create({
+        data: {
+          studentId: student.id,
+          firstName: createStudentDto.parent.firstName,
+          lastName: createStudentDto.parent.lastName,
+          phone: createStudentDto.parent.phone,
+          relationship: createStudentDto.parent.relationship,
+          isTelegramActive: false,
+        },
+      });
+
+      // Fetch student again with parents
+      const studentWithParents = await this.prisma.student.findUnique({
+        where: { id: student.id },
+        include: {
+          user: true,
+          school: true,
+          class: true,
+          parents: true,
+        },
+      });
+
+      // Upload photo to turnstile if exists
+      if (studentWithParents.photo) {
+        await this.turnstileService.uploadPhoto(
+          studentWithParents.id,
+          studentWithParents.photo,
+          'student',
+        );
+      }
+
+      return studentWithParents;
+    }
+
+    // Upload photo to turnstile if exists
+    if (student.photo) {
+      await this.turnstileService.uploadPhoto(
+        student.id,
+        student.photo,
+        'student',
+      );
+    }
 
     return student;
   }
@@ -138,6 +187,11 @@ export class StudentsService {
       throw new NotFoundException(`Student with ID ${id} not found`);
     }
 
+    // Convert dateOfBirth to Date object if provided
+    const dateOfBirth = updateStudentDto.dateOfBirth 
+      ? new Date(updateStudentDto.dateOfBirth) 
+      : undefined;
+
     // Update student
     const student = await this.prisma.student.update({
       where: { id },
@@ -145,11 +199,11 @@ export class StudentsService {
         firstName: updateStudentDto.firstName,
         lastName: updateStudentDto.lastName,
         middleName: updateStudentDto.middleName,
-        dateOfBirth: updateStudentDto.dateOfBirth,
+        dateOfBirth: dateOfBirth,
         gender: updateStudentDto.gender,
         phone: updateStudentDto.phone,
         telegramId: updateStudentDto.telegramId,
-        photo: updateStudentDto.photo, // FIXED: was faceImage
+        photo: updateStudentDto.photo,
       },
       include: {
         user: true,
@@ -159,10 +213,14 @@ export class StudentsService {
       },
     });
 
-    // TODO: Update photo on turnstile device if changed
-    // if (updateStudentDto.photo && updateStudentDto.photo !== existingStudent.photo) {
-    //   await this.uploadToTurnstile(student.id, student.photo);
-    // }
+    // Update photo on turnstile if changed
+    if (updateStudentDto.photo && updateStudentDto.photo !== existingStudent.photo) {
+      await this.turnstileService.updatePhoto(
+        student.id,
+        student.photo,
+        'student',
+      );
+    }
 
     return student;
   }
@@ -191,8 +249,8 @@ export class StudentsService {
       await this.prisma.user.delete({ where: { id: student.userId } });
     }
 
-    // TODO: Remove from turnstile device
-    // await this.removeFromTurnstile(id);
+    // Remove from turnstile device
+    await this.turnstileService.removePhoto(id);
 
     return { message: 'Student deleted successfully' };
   }
@@ -225,6 +283,33 @@ export class StudentsService {
       absent,
       excused,
       attendanceRate: total > 0 ? ((present + late) / total * 100).toFixed(2) : '0',
+    };
+  }
+
+  // Sync all students photos to turnstile
+  async syncPhotosToTurnstile(schoolId: string) {
+    const students = await this.prisma.student.findMany({
+      where: {
+        schoolId,
+        photo: { not: null },
+      },
+      select: {
+        id: true,
+        photo: true,
+      },
+    });
+
+    const users = students.map(s => ({
+      id: s.id,
+      photo: s.photo,
+      type: 'student',
+    }));
+
+    await this.turnstileService.syncSchoolPhotos(schoolId, users);
+
+    return {
+      message: 'Photos sync completed',
+      total: users.length,
     };
   }
 }

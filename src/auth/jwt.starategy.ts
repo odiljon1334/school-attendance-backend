@@ -13,11 +13,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get('JWT_SECRET'),
+      secretOrKey: configService.get('JWT_SECRET') || 'your-secret-key',
     });
   }
 
   async validate(payload: any) {
+    // Payload contains: { sub: userId, username, email, role }
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {
@@ -33,6 +34,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('User not found or inactive');
     }
 
-    return user;
+    // This will be available as req.user
+    return {
+      sub: payload.sub,
+      userId: payload.sub,
+      username: payload.username,
+      email: payload.email,
+      role: payload.role,
+    };
   }
 }
