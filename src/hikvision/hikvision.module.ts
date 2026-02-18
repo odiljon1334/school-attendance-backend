@@ -1,17 +1,19 @@
+// src/hikvision/hikvision.module.ts - UPDATE
+
 import { Module } from '@nestjs/common';
 import { HikvisionService } from './hikvision.service';
-import { HikvisionApiService } from './hikvision-api.service'; // Fayl yo'lini tekshiring
 import { HikvisionController } from './hikvision.controller';
-import { PrismaService } from '../prisma/prisma.service'; // Prisma yo'lini tekshiring
+import { HikvisionApiService } from './hikvision-api.service';
+import { PrismaModule } from '../prisma/prisma.module';
+import { PayrollModule } from '../payroll/payroll.module';  // ✅ ADD THIS
 
 @Module({
-  imports: [],
-  controllers: [HikvisionController],
-  providers: [
-    HikvisionService, 
-    HikvisionApiService, // SHU QATORNI QO'SHING
-    PrismaService
+  imports: [
+    PrismaModule,
+    PayrollModule,  // ✅ ADD THIS
   ],
+  controllers: [HikvisionController],
+  providers: [HikvisionService, HikvisionApiService],
   exports: [HikvisionService],
 })
 export class HikvisionModule {}

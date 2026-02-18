@@ -31,9 +31,13 @@ export class ClassesService {
       },
       include: {
         school: true,
-        _count: {
-          select: { students: true },
-        },
+        _count: { select: { students: true } },
+        // ✅ QO'SHILDI: O'qituvchini ko'rsatish uchun
+        teacherClasses: {
+          include: {
+            teacher: true
+          }
+        }
       },
     });
   }
@@ -42,14 +46,18 @@ export class ClassesService {
     const where: any = {};
     if (schoolId) where.schoolId = schoolId;
     if (academicYear) where.academicYear = academicYear;
-
+  
     return this.prisma.class.findMany({
       where,
       include: {
         school: true,
-        _count: {
-          select: { students: true },
-        },
+        _count: { select: { students: true } },
+        // ✅ QO'SHILDI: Sinf rahbarini frontendda chiqarish uchun
+        teacherClasses: {
+          include: {
+            teacher: true
+          }
+        }
       },
       orderBy: [{ grade: 'asc' }, { section: 'asc' }],
     });
@@ -86,19 +94,23 @@ export class ClassesService {
     }
 
     return this.prisma.class.update({
-      where: { id },
-      data: {
-        grade: updateClassDto.grade,
-        section: updateClassDto.section,
-        academicYear: updateClassDto.academicYear,
-      },
-      include: {
-        school: true,
-        _count: {
-          select: { students: true },
-        },
-      },
-    });
+    where: { id },
+    data: {
+      grade: updateClassDto.grade,
+      section: updateClassDto.section,
+      academicYear: updateClassDto.academicYear,
+    },
+    include: {
+      school: true,
+      _count: { select: { students: true } },
+      // ✅ QO'SHILDI: Update dan keyin ham ma'lumotni qaytarish uchun
+      teacherClasses: {
+        include: {
+          teacher: true
+        }
+      }
+    },
+  });
   }
 
   async remove(id: string) {

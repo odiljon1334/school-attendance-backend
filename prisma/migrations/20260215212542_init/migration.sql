@@ -8,7 +8,7 @@ CREATE TYPE "UserStatus" AS ENUM ('ACTIVE', 'INACTIVE', 'SUSPENDED');
 CREATE TYPE "Gender" AS ENUM ('MALE', 'FEMALE');
 
 -- CreateEnum
-CREATE TYPE "AttendanceStatus" AS ENUM ('PRESENT', 'LATE', 'ABSENT', 'EXCUSED');
+CREATE TYPE "AttendanceStatus" AS ENUM ('PRESENT', 'LATE', 'ABSENT', 'LEAVE', 'HOLIDAY');
 
 -- CreateEnum
 CREATE TYPE "PaymentStatus" AS ENUM ('PENDING', 'PAID', 'OVERDUE');
@@ -80,7 +80,11 @@ CREATE TABLE "Student" (
     "gender" "Gender" NOT NULL,
     "phone" TEXT,
     "telegramId" TEXT,
+    "telegramUsername" TEXT,
+    "telegramChatId" TEXT,
+    "isTelegramActive" BOOLEAN NOT NULL DEFAULT false,
     "photo" TEXT,
+    "facePersonId" TEXT,
     "enrollNumber" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -96,14 +100,96 @@ CREATE TABLE "Teacher" (
     "firstName" TEXT NOT NULL,
     "lastName" TEXT NOT NULL,
     "phone" TEXT NOT NULL,
-    "telegramId" TEXT,
     "subjects" TEXT[],
+    "telegramId" TEXT,
+    "telegramUsername" TEXT,
+    "telegramChatId" TEXT,
+    "isTelegramActive" BOOLEAN NOT NULL DEFAULT false,
     "photo" TEXT,
+    "facePersonId" TEXT,
     "enrollNumber" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Teacher_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "TeacherClass" (
+    "id" TEXT NOT NULL,
+    "teacherId" TEXT NOT NULL,
+    "classId" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "TeacherClass_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "teacher_schedules" (
+    "id" TEXT NOT NULL,
+    "teacherId" TEXT NOT NULL,
+    "workDays" JSONB NOT NULL,
+    "startTime" TEXT NOT NULL,
+    "endTime" TEXT NOT NULL,
+    "hoursPerDay" DOUBLE PRECISION NOT NULL,
+    "daysPerWeek" INTEGER NOT NULL,
+    "hoursPerMonth" DOUBLE PRECISION NOT NULL,
+    "baseSalary" DOUBLE PRECISION NOT NULL,
+    "hourlyRate" DOUBLE PRECISION NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "teacher_schedules_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "teacher_attendances" (
+    "id" TEXT NOT NULL,
+    "teacherId" TEXT NOT NULL,
+    "date" TIMESTAMP(3) NOT NULL,
+    "checkInTime" TIMESTAMP(3),
+    "checkOutTime" TIMESTAMP(3),
+    "workDuration" DOUBLE PRECISION,
+    "isLate" BOOLEAN NOT NULL DEFAULT false,
+    "lateMinutes" INTEGER NOT NULL DEFAULT 0,
+    "leftEarly" BOOLEAN NOT NULL DEFAULT false,
+    "earlyMinutes" INTEGER NOT NULL DEFAULT 0,
+    "isAbsent" BOOLEAN NOT NULL DEFAULT false,
+    "status" "AttendanceStatus" NOT NULL DEFAULT 'ABSENT',
+    "notes" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "teacher_attendances_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "teacher_payrolls" (
+    "id" TEXT NOT NULL,
+    "teacherId" TEXT NOT NULL,
+    "month" TEXT NOT NULL,
+    "expectedDays" INTEGER NOT NULL,
+    "expectedHours" DOUBLE PRECISION NOT NULL,
+    "baseSalary" DOUBLE PRECISION NOT NULL,
+    "totalDaysWorked" INTEGER NOT NULL,
+    "totalHoursWorked" DOUBLE PRECISION NOT NULL,
+    "lateDays" INTEGER NOT NULL DEFAULT 0,
+    "lateMinutes" INTEGER NOT NULL DEFAULT 0,
+    "earlyLeaveDays" INTEGER NOT NULL DEFAULT 0,
+    "earlyLeaveMinutes" INTEGER NOT NULL DEFAULT 0,
+    "absentDays" INTEGER NOT NULL DEFAULT 0,
+    "missedHours" DOUBLE PRECISION NOT NULL,
+    "penaltyAmount" DOUBLE PRECISION NOT NULL,
+    "bonusAmount" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "bonusReason" TEXT,
+    "actualSalary" DOUBLE PRECISION NOT NULL,
+    "isPaid" BOOLEAN NOT NULL DEFAULT false,
+    "paidAt" TIMESTAMP(3),
+    "paymentMethod" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "teacher_payrolls_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -115,7 +201,11 @@ CREATE TABLE "Director" (
     "lastName" TEXT NOT NULL,
     "phone" TEXT NOT NULL,
     "telegramId" TEXT,
+    "telegramUsername" TEXT,
+    "telegramChatId" TEXT,
+    "isTelegramActive" BOOLEAN NOT NULL DEFAULT false,
     "photo" TEXT,
+    "facePersonId" TEXT,
     "enrollNumber" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -132,6 +222,7 @@ CREATE TABLE "Parent" (
     "lastName" TEXT NOT NULL,
     "phone" TEXT NOT NULL,
     "telegramId" TEXT,
+    "telegramUsername" TEXT,
     "telegramChatId" TEXT,
     "isTelegramActive" BOOLEAN NOT NULL DEFAULT false,
     "relationship" TEXT NOT NULL,
@@ -195,6 +286,32 @@ CREATE TABLE "Notification" (
     CONSTRAINT "Notification_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "TelegramSession" (
+    "id" TEXT NOT NULL,
+    "chatId" TEXT NOT NULL,
+    "telegramId" TEXT NOT NULL,
+    "userId" TEXT,
+    "userType" TEXT,
+    "state" TEXT NOT NULL DEFAULT 'START',
+    "data" JSONB,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "TelegramSession_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SmsLog" (
+    "id" TEXT NOT NULL,
+    "recipient" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "sentAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "SmsLog_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
 
@@ -211,6 +328,12 @@ CREATE UNIQUE INDEX "Class_schoolId_grade_section_academicYear_key" ON "Class"("
 CREATE UNIQUE INDEX "Student_userId_key" ON "Student"("userId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Student_telegramId_key" ON "Student"("telegramId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Student_facePersonId_key" ON "Student"("facePersonId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Student_enrollNumber_key" ON "Student"("enrollNumber");
 
 -- CreateIndex
@@ -223,13 +346,43 @@ CREATE INDEX "Student_classId_idx" ON "Student"("classId");
 CREATE UNIQUE INDEX "Teacher_userId_key" ON "Teacher"("userId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Teacher_telegramId_key" ON "Teacher"("telegramId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Teacher_facePersonId_key" ON "Teacher"("facePersonId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Teacher_enrollNumber_key" ON "Teacher"("enrollNumber");
 
 -- CreateIndex
 CREATE INDEX "Teacher_schoolId_idx" ON "Teacher"("schoolId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "TeacherClass_teacherId_classId_key" ON "TeacherClass"("teacherId", "classId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "teacher_schedules_teacherId_key" ON "teacher_schedules"("teacherId");
+
+-- CreateIndex
+CREATE INDEX "teacher_attendances_teacherId_date_idx" ON "teacher_attendances"("teacherId", "date");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "teacher_attendances_teacherId_date_key" ON "teacher_attendances"("teacherId", "date");
+
+-- CreateIndex
+CREATE INDEX "teacher_payrolls_teacherId_month_idx" ON "teacher_payrolls"("teacherId", "month");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "teacher_payrolls_teacherId_month_key" ON "teacher_payrolls"("teacherId", "month");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Director_userId_key" ON "Director"("userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Director_telegramId_key" ON "Director"("telegramId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Director_facePersonId_key" ON "Director"("facePersonId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Director_enrollNumber_key" ON "Director"("enrollNumber");
@@ -270,6 +423,21 @@ CREATE UNIQUE INDEX "Payment_studentId_month_key" ON "Payment"("studentId", "mon
 -- CreateIndex
 CREATE INDEX "Notification_recipientId_isSent_idx" ON "Notification"("recipientId", "isSent");
 
+-- CreateIndex
+CREATE UNIQUE INDEX "TelegramSession_chatId_key" ON "TelegramSession"("chatId");
+
+-- CreateIndex
+CREATE INDEX "TelegramSession_chatId_idx" ON "TelegramSession"("chatId");
+
+-- CreateIndex
+CREATE INDEX "TelegramSession_telegramId_idx" ON "TelegramSession"("telegramId");
+
+-- CreateIndex
+CREATE INDEX "SmsLog_recipient_idx" ON "SmsLog"("recipient");
+
+-- CreateIndex
+CREATE INDEX "SmsLog_sentAt_idx" ON "SmsLog"("sentAt");
+
 -- AddForeignKey
 ALTER TABLE "School" ADD CONSTRAINT "School_districtId_fkey" FOREIGN KEY ("districtId") REFERENCES "District"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
@@ -290,6 +458,21 @@ ALTER TABLE "Teacher" ADD CONSTRAINT "Teacher_userId_fkey" FOREIGN KEY ("userId"
 
 -- AddForeignKey
 ALTER TABLE "Teacher" ADD CONSTRAINT "Teacher_schoolId_fkey" FOREIGN KEY ("schoolId") REFERENCES "School"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TeacherClass" ADD CONSTRAINT "TeacherClass_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TeacherClass" ADD CONSTRAINT "TeacherClass_classId_fkey" FOREIGN KEY ("classId") REFERENCES "Class"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "teacher_schedules" ADD CONSTRAINT "teacher_schedules_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "teacher_attendances" ADD CONSTRAINT "teacher_attendances_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "teacher_payrolls" ADD CONSTRAINT "teacher_payrolls_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Director" ADD CONSTRAINT "Director_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

@@ -1,168 +1,522 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+// src/attendance/attendance.service.ts - WITH PAYMENT CHECK
+
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { TelegramService } from '../notifications/telegram.service';
+import { SmsService } from '../notifications/sms.service';
+import { CreateAttendanceDto, UpdateAttendanceDto } from './dto/attendance.dto';
+
+const MIN_CHECKOUT_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 soat
+const RE_ENTRY_GRACE_MS        = 10 * 60 * 1000;      // 10 daqiqa
+const ABSENT_THRESHOLD_MIN     = 6 * 60;              // 360 daqiqa = 6 soat
+const SCHOOL_START_HOUR        = 9;                   // 09:00
 
 @Injectable()
 export class AttendanceService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(AttendanceService.name);
 
-  async create(createAttendanceDto: any) {
+  constructor(
+    private prisma: PrismaService,
+    private telegramService: TelegramService,
+    private smsService: SmsService,
+  ) {}
+
+  // ==========================================
+  // ✅ MAIN: HIKVISION TURNSTILE EVENT
+  // ==========================================
+  async handleTurnstileEvent(event: {
+    personId: string;
+    deviceId: string;
+    timestamp: string;
+    eventType: string;
+    capturePhoto?: string;
+  }) {
+    try {
+      this.logger.log(`Turnstile event: ${event.personId}`);
+
+      const person = await this.findPersonByFaceId(event.personId);
+      if (!person) {
+        this.logger.warn(`Person not found: ${event.personId}`);
+        return { success: false, message: 'Person not found' };
+      }
+
+      const now = new Date();
+      return await this.processAttendanceLogic({
+        person,
+        now,
+        deviceId: event.deviceId,
+        capturePhoto: event.capturePhoto,
+      });
+    } catch (error) {
+      this.logger.error('Turnstile event error:', error);
+      throw error;
+    }
+  }
+
+  // ==========================================
+  // ✅ CORE LOGIKA
+  // ==========================================
+  private async processAttendanceLogic(params: {
+    person: any;
+    now: Date;
+    deviceId: string;
+    capturePhoto?: string;
+  }) {
+    const { person, now, deviceId, capturePhoto } = params;
+
+    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd   = new Date(now); todayEnd.setHours(23, 59, 59, 999);
+
+    const existing = await this.prisma.attendance.findFirst({
+      where: {
+        date:       { gte: todayStart, lte: todayEnd },
+        studentId:  person.type === 'STUDENT'  ? person.id : undefined,
+        teacherId:  person.type === 'TEACHER'  ? person.id : undefined,
+        directorId: person.type === 'DIRECTOR' ? person.id : undefined,
+      },
+    });
+
+    // CASE 1: Bugun hali kelmagan
+    if (!existing) {
+      return await this.handleCheckIn({ person, now, deviceId, capturePhoto, existing: null });
+    }
+
+    // CASE 2: Maktabda (hali chiqmagan)
+    if (!existing.checkOutTime) {
+      const timeSinceCheckIn = now.getTime() - existing.checkInTime.getTime();
+
+      if (timeSinceCheckIn >= MIN_CHECKOUT_INTERVAL_MS) {
+        return await this.handleCheckOut({ person, record: existing, now });
+      }
+
+      const minutesLeft = Math.ceil((MIN_CHECKOUT_INTERVAL_MS - timeSinceCheckIn) / 60000);
+      this.logger.log(`IGNORED: ${person.firstName} — checkout in ${minutesLeft} min`);
+      return { success: true, action: 'IGNORED', message: `Checkout available in ${minutesLeft} min` };
+    }
+
+    // CASE 3: Chiqib ketgan
+    const timeSinceCheckOut = now.getTime() - existing.checkOutTime.getTime();
+
+    if (timeSinceCheckOut <= RE_ENTRY_GRACE_MS) {
+      const minutesSince = Math.floor(timeSinceCheckOut / 60000);
+      this.logger.log(`IGNORED: ${person.firstName} re-entered within grace (${minutesSince} min)`);
+      return { success: true, action: 'IGNORED', message: `Re-entry within 10 min grace` };
+    }
+
+    const minutesAway = Math.floor(timeSinceCheckOut / 60000);
+    this.logger.log(`RE-ENTRY LATE: ${person.firstName} — away ${minutesAway} min`);
+    return await this.handleCheckIn({ person, now, deviceId, capturePhoto, existing });
+  }
+
+  // ==========================================
+  // ✅ CHECK-IN HANDLER
+  // ==========================================
+  private async handleCheckIn(params: {
+    person: any;
+    now: Date;
+    deviceId: string;
+    capturePhoto?: string;
+    existing: any | null;
+  }) {
+    const { person, now, deviceId, capturePhoto, existing } = params;
+
+    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+
+    const hour        = now.getHours();
+    const minute      = now.getMinutes();
+    const isLate      = hour > SCHOOL_START_HOUR || (hour === SCHOOL_START_HOUR && minute > 0);
+    const lateMinutes = isLate ? (hour - SCHOOL_START_HOUR) * 60 + minute : 0;
+
+    let attendance: any;
+
+    if (!existing) {
+      attendance = await this.prisma.attendance.create({
+        data: {
+          schoolId:    person.schoolId,
+          studentId:   person.type === 'STUDENT'  ? person.id : undefined,
+          teacherId:   person.type === 'TEACHER'  ? person.id : undefined,
+          directorId:  person.type === 'DIRECTOR' ? person.id : undefined,
+          date:        todayStart,
+          status:      isLate ? 'LATE' : 'PRESENT',
+          checkInTime: now,
+          checkOutTime: null,
+          lateMinutes:  lateMinutes > 0 ? lateMinutes : 0,
+          lateCount:    isLate ? 1 : 0,
+          deviceId,
+        },
+      });
+      this.logger.log(`CHECK-IN (new): ${person.firstName} | ${now.toTimeString().slice(0, 5)} | Late: ${isLate}`);
+    } else {
+      const newLateMinutes = (existing.lateMinutes || 0) + lateMinutes;
+      const newLateCount   = (existing.lateCount   || 0) + 1;
+
+      attendance = await this.prisma.attendance.update({
+        where: { id: existing.id },
+        data: {
+          status:       'LATE',
+          checkInTime:  now,
+          checkOutTime: null,
+          lateMinutes:  newLateMinutes,
+          lateCount:    newLateCount,
+        },
+      });
+      this.logger.log(
+        `CHECK-IN (re-entry): ${person.firstName} | Late count: ${newLateCount} | Total: ${newLateMinutes} min`
+      );
+    }
+
+    // ✅ STUDENT uchun notification
+    if (person.type === 'STUDENT') {
+      await this.sendCheckInNotification({ person, attendance, isLate, lateMinutes, capturePhoto });
+
+      if (isLate) {
+        await this.checkWeeklyAbsence(person, now, attendance);
+      }
+    }
+
+    return { success: true, action: 'CHECK_IN', attendance };
+  }
+
+  // ==========================================
+  // ✅ CHECK-OUT HANDLER
+  // ==========================================
+  private async handleCheckOut(params: {
+    person: any;
+    record: any;
+    now: Date;
+  }) {
+    const { person, record, now } = params;
+
+    const updated = await this.prisma.attendance.update({
+      where: { id: record.id },
+      data:  { checkOutTime: now },
+    });
+
+    this.logger.log(`CHECK-OUT: ${person.firstName} | ${now.toTimeString().slice(0, 5)}`);
+
+    if (person.type === 'STUDENT') {
+      await this.sendCheckOutNotification({ person, attendance: updated });
+    }
+
+    return { success: true, action: 'CHECK_OUT', attendance: updated };
+  }
+
+  // ==========================================
+  // ✅ HAFTALIK KECHIKISH TEKSHIRUVI
+  // ==========================================
+  private async checkWeeklyAbsence(person: any, now: Date, currentAttendance: any) {
+    const weekStart = new Date(now);
+    const day  = weekStart.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    weekStart.setDate(weekStart.getDate() + diff);
+    weekStart.setHours(0, 0, 0, 0);
+
+    const weekRecords = await this.prisma.attendance.findMany({
+      where: {
+        studentId: person.id,
+        date:      { gte: weekStart },
+      },
+    });
+
+    const totalLateMinutes = weekRecords.reduce((sum, r) => sum + (r.lateMinutes || 0), 0);
+
+    this.logger.log(`Weekly late: ${person.firstName} | ${totalLateMinutes} min / ${ABSENT_THRESHOLD_MIN} min`);
+
+    if (totalLateMinutes >= ABSENT_THRESHOLD_MIN) {
+      this.logger.warn(`ABSENT: ${person.firstName} | ${totalLateMinutes} min this week!`);
+      await this.sendAbsentNotification({ person, totalLateMinutes });
+    }
+  }
+
+  // ==========================================
+  // ✅ TO'LOV TEKSHIRUVI
+  // ==========================================
+  private canSendNotification(student: any): {
+    sms: boolean;
+    telegram: boolean;
+    reason?: string;
+  } {
+    const now = new Date();
+
+    // isSmsEnabled o'chirilgan
+    if (!student.isSmsEnabled) {
+      this.logger.warn(`SMS disabled for student ${student.firstName} ${student.lastName}`);
+      return { sms: false, telegram: false, reason: 'SMS service disabled' };
+    }
+
+    // Muddat tugagan
+    if (student.smsPaidUntil && student.smsPaidUntil < now) {
+      this.logger.warn(
+        `SMS subscription expired for ${student.firstName} ${student.lastName} (expired: ${student.smsPaidUntil})`
+      );
+      
+      // Avtomatik o'chirish (agar hali o'chirilmagan bo'lsa)
+      this.prisma.student.update({
+        where: { id: student.id },
+        data:  { isSmsEnabled: false },
+      }).catch(err => this.logger.error('Failed to auto-disable SMS:', err));
+
+      return { sms: false, telegram: false, reason: 'SMS subscription expired' };
+    }
+
+    // ✅ Hammasi yaxshi
+    return { sms: true, telegram: true };
+  }
+
+  // ==========================================
+  // ✅ CHECK-IN NOTIFICATION (WITH PAYMENT CHECK)
+  // ==========================================
+  private async sendCheckInNotification(params: {
+    person: any;
+    attendance: any;
+    isLate: boolean;
+    lateMinutes: number;
+    capturePhoto?: string;
+  }) {
+    const { person, attendance, isLate, lateMinutes, capturePhoto } = params;
+
+    // ✅ TO'LOV TEKSHIRUVI
+    const canSend = this.canSendNotification(person);
+    if (!canSend.sms) {
+      this.logger.log(`Notification blocked: ${canSend.reason}`);
+      return;
+    }
+
+    const time = attendance.checkInTime.toLocaleTimeString('ru-RU', {
+      hour: '2-digit', minute: '2-digit',
+    });
+
+    for (const parent of person.parents || []) {
+      try {
+        // SMS
+        if (parent.phone && canSend.sms) {
+          const smsMessage = this.smsService.buildCheckInMessage({
+            parentName:  `${parent.firstName} ${parent.lastName}`,
+            studentName: `${person.firstName} ${person.lastName}`,
+            time,
+            isLate,
+            lateMinutes,
+          });
+          await this.smsService.sendSms(parent.phone, smsMessage);
+          this.logger.log(`Check-in SMS → ${parent.phone}`);
+        }
+
+        // Telegram
+        if (parent.isTelegramActive && parent.telegramChatId && canSend.telegram) {
+          const telegramMessage =
+            `Здравствуйте, уважаемый(ая) ${parent.firstName} ${parent.lastName}!\n\n` +
+            `Ваш ребёнок: ${person.firstName} ${person.lastName}\n` +
+            `Прибыл в школу: ${time}` +
+            (isLate ? `\nОпоздание: ${lateMinutes} мин` : '') +
+            `\n\nАдминистрация школы.`;
+
+          if (capturePhoto) {
+            await this.telegramService.sendPhotoFromBase64(
+              parent.telegramChatId, capturePhoto, telegramMessage
+            );
+          } else {
+            await this.telegramService.sendMessage(parent.telegramChatId, telegramMessage);
+          }
+          this.logger.log(`Check-in Telegram → ${parent.telegramChatId}`);
+        }
+      } catch (error) {
+        this.logger.error(`Notification error (parent ${parent.id}):`, error.message);
+      }
+    }
+  }
+
+  // ==========================================
+  // ✅ CHECK-OUT NOTIFICATION (WITH PAYMENT CHECK)
+  // ==========================================
+  private async sendCheckOutNotification(params: {
+    person: any;
+    attendance: any;
+  }) {
+    const { person, attendance } = params;
+
+    // ✅ TO'LOV TEKSHIRUVI
+    const canSend = this.canSendNotification(person);
+    if (!canSend.sms) {
+      this.logger.log(`Check-out notification blocked: ${canSend.reason}`);
+      return;
+    }
+
+    const checkInTime  = attendance.checkInTime.toLocaleTimeString('ru-RU', {
+      hour: '2-digit', minute: '2-digit',
+    });
+    const checkOutTime = attendance.checkOutTime.toLocaleTimeString('ru-RU', {
+      hour: '2-digit', minute: '2-digit',
+    });
+
+    for (const parent of person.parents || []) {
+      try {
+        // SMS
+        if (parent.phone && canSend.sms) {
+          const smsMessage = this.smsService.buildCheckOutMessage({
+            parentName:   `${parent.firstName} ${parent.lastName}`,
+            studentName:  `${person.firstName} ${person.lastName}`,
+            checkInTime,
+            checkOutTime,
+          });
+          await this.smsService.sendSms(parent.phone, smsMessage);
+          this.logger.log(`Check-out SMS → ${parent.phone}`);
+        }
+
+        // Telegram
+        if (parent.isTelegramActive && parent.telegramChatId && canSend.telegram) {
+          const telegramMessage =
+            `Здравствуйте, уважаемый(ая) ${parent.firstName} ${parent.lastName}!\n\n` +
+            `Ваш ребёнок: ${person.firstName} ${person.lastName}\n` +
+            `Покинул школу: ${checkOutTime}\n` +
+            `Пришёл: ${checkInTime}\n\n` +
+            `Администрация школы.`;
+
+          await this.telegramService.sendMessage(parent.telegramChatId, telegramMessage);
+          this.logger.log(`Check-out Telegram → ${parent.telegramChatId}`);
+        }
+      } catch (error) {
+        this.logger.error(`Check-out notification error (parent ${parent.id}):`, error.message);
+      }
+    }
+  }
+
+  // ==========================================
+  // ✅ ABSENT NOTIFICATION (WITH PAYMENT CHECK)
+  // ==========================================
+  private async sendAbsentNotification(params: {
+    person: any;
+    totalLateMinutes: number;
+  }) {
+    const { person, totalLateMinutes } = params;
+
+    // ✅ TO'LOV TEKSHIRUVI
+    const canSend = this.canSendNotification(person);
+    if (!canSend.sms) {
+      this.logger.log(`Absent notification blocked: ${canSend.reason}`);
+      return;
+    }
+
+    const totalHours = Math.floor(totalLateMinutes / 60);
+    const totalMins  = totalLateMinutes % 60;
+
+    for (const parent of person.parents || []) {
+      try {
+        const message =
+          `Уважаемый(ая) ${parent.firstName} ${parent.lastName}!\n\n` +
+          `Ваш ребёнок: ${person.firstName} ${person.lastName}\n` +
+          `Общее опоздание за неделю: ${totalHours} ч ${totalMins} мин\n` +
+          `Это засчитывается как 1 день пропуска.\n\n` +
+          `Администрация школы.`;
+
+        // SMS
+        if (parent.phone && canSend.sms) {
+          await this.smsService.sendSms(parent.phone, message);
+          this.logger.log(`Absent SMS → ${parent.phone}`);
+        }
+
+        // Telegram
+        if (parent.isTelegramActive && parent.telegramChatId && canSend.telegram) {
+          await this.telegramService.sendMessage(parent.telegramChatId, message);
+          this.logger.log(`Absent Telegram → ${parent.telegramChatId}`);
+        }
+      } catch (error) {
+        this.logger.error(`Absent notification error (parent ${parent.id}):`, error.message);
+      }
+    }
+  }
+
+  // ==========================================
+  // ✅ FIND PERSON BY FACE ID
+  // ==========================================
+  private async findPersonByFaceId(facePersonId: string) {
+    const student = await this.prisma.student.findUnique({
+      where:   { facePersonId },
+      include: { school: true, parents: true },
+    });
+    if (student) return { ...student, type: 'STUDENT' };
+
+    const teacher = await this.prisma.teacher.findUnique({
+      where:   { facePersonId },
+      include: { school: true },
+    });
+    if (teacher) return { ...teacher, type: 'TEACHER' };
+
+    const director = await this.prisma.director.findUnique({
+      where:   { facePersonId },
+      include: { school: true },
+    });
+    if (director) return { ...director, type: 'DIRECTOR' };
+
+    return null;
+  }
+
+  // ==========================================
+  // EXISTING CRUD METHODS
+  // ==========================================
+  async create(createAttendanceDto: CreateAttendanceDto) {
     return this.prisma.attendance.create({
       data: {
-        schoolId: createAttendanceDto.schoolId,
-        studentId: createAttendanceDto.studentId,
-        teacherId: createAttendanceDto.teacherId,
-        directorId: createAttendanceDto.directorId,
-        date: new Date(createAttendanceDto.date),
-        status: createAttendanceDto.status,
-        checkInTime: createAttendanceDto.checkInTime,
-        checkOutTime: createAttendanceDto.checkOutTime,
-        lateMinutes: createAttendanceDto.lateMinutes,
-        deviceId: createAttendanceDto.deviceId,
-        notes: createAttendanceDto.notes,
-      },
-      include: {
-        student: true,
-        teacher: true,
-        director: true,
+        status:  createAttendanceDto.status,
+        date:    new Date(createAttendanceDto.date),
+        teacher: createAttendanceDto.teacherId ? { connect: { id: createAttendanceDto.teacherId } } : undefined,
+        student: createAttendanceDto.studentId ? { connect: { id: createAttendanceDto.studentId } } : undefined,
+        school:  { connect: { id: createAttendanceDto.schoolId } },
       },
     });
   }
 
-  async findAll(
-    schoolId?: string,
-    date?: string,
-    studentId?: string,
-    classId?: string,
-  ) {
+  async findAll(schoolId?: string, date?: string, studentId?: string, classId?: string) {
     const where: any = {};
-
-    if (schoolId) where.schoolId = schoolId;
+    if (schoolId)  where.schoolId  = schoolId;
     if (studentId) where.studentId = studentId;
     if (date) {
-      const parsedDate = new Date(date);
-      parsedDate.setHours(0, 0, 0, 0);
-      const nextDay = new Date(parsedDate);
-      nextDay.setDate(nextDay.getDate() + 1);
-      where.date = { gte: parsedDate, lt: nextDay };
+      const d = new Date(date);
+      where.date = {
+        gte: new Date(d.setHours(0, 0, 0, 0)),
+        lt:  new Date(d.setHours(23, 59, 59, 999)),
+      };
     }
-
-    // Filter by classId through student relation
-    if (classId) {
-      where.student = { classId };
-    }
+    if (classId) where.student = { classId };
 
     return this.prisma.attendance.findMany({
       where,
-      include: {
-        student: {
-          include: { class: true },
-        },
-        teacher: true,
-        director: true,
-      },
+      include: { student: true, teacher: true, director: true, school: true },
       orderBy: { date: 'desc' },
     });
   }
 
   async getTodayAttendance(schoolId: string, classId?: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const today    = new Date(); today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
+    const where: any = { schoolId, date: { gte: today, lt: tomorrow } };
+    if (classId) where.student = { classId };
 
-    const where: any = {
-      schoolId,
-      date: { gte: today, lt: tomorrow },
-    };
-
-    if (classId) {
-      where.student = { classId };
-    }
-
-    const attendances = await this.prisma.attendance.findMany({
+    return this.prisma.attendance.findMany({
       where,
-      include: {
-        student: {
-          include: { class: true },
-        },
-        teacher: true,
-        director: true,
-      },
+      include: { student: true, teacher: true, director: true },
+      orderBy: { checkInTime: 'asc' },
     });
-
-    // Group stats
-    const studentAttendance = attendances.filter(a => a.studentId);
-    const teacherAttendance = attendances.filter(a => a.teacherId);
-
-    return {
-      date: today.toISOString().split('T')[0],
-      students: {
-        present: studentAttendance.filter(a => a.status === 'PRESENT').length,
-        late: studentAttendance.filter(a => a.status === 'LATE').length,
-        absent: studentAttendance.filter(a => a.status === 'ABSENT').length,
-        excused: studentAttendance.filter(a => a.status === 'EXCUSED').length,
-        total: studentAttendance.length,
-      },
-      teachers: {
-        present: teacherAttendance.filter(a => a.status === 'PRESENT').length,
-        late: teacherAttendance.filter(a => a.status === 'LATE').length,
-        absent: teacherAttendance.filter(a => a.status === 'ABSENT').length,
-        total: teacherAttendance.length,
-      },
-      records: attendances,
-    };
   }
 
   async findOne(id: string) {
     const attendance = await this.prisma.attendance.findUnique({
-      where: { id },
-      include: {
-        student: true,
-        teacher: true,
-        director: true,
-        school: true,
-      },
+      where:   { id },
+      include: { student: true, teacher: true, director: true, school: true },
     });
-
-    if (!attendance) {
-      throw new NotFoundException(`Attendance record with ID ${id} not found`);
-    }
-
+    if (!attendance) throw new NotFoundException(`Attendance #${id} not found`);
     return attendance;
   }
 
-  async update(id: string, updateAttendanceDto: any) {
-    const existing = await this.prisma.attendance.findUnique({ where: { id } });
-
-    if (!existing) {
-      throw new NotFoundException(`Attendance record with ID ${id} not found`);
-    }
-
+  async update(id: string, updateAttendanceDto: UpdateAttendanceDto) {
     return this.prisma.attendance.update({
-      where: { id },
-      data: {
-        status: updateAttendanceDto.status,
-        checkInTime: updateAttendanceDto.checkInTime,
-        checkOutTime: updateAttendanceDto.checkOutTime,
-        lateMinutes: updateAttendanceDto.lateMinutes,
-        notes: updateAttendanceDto.notes,
-      },
-      include: {
-        student: true,
-        teacher: true,
-        director: true,
-      },
+      where:   { id },
+      data:    updateAttendanceDto,
+      include: { student: true, teacher: true, director: true },
     });
   }
 
   async remove(id: string) {
-    const existing = await this.prisma.attendance.findUnique({ where: { id } });
-
-    if (!existing) {
-      throw new NotFoundException(`Attendance record with ID ${id} not found`);
-    }
-
     await this.prisma.attendance.delete({ where: { id } });
-    return { message: 'Attendance record deleted successfully' };
+    return { message: 'Attendance deleted successfully' };
   }
 }

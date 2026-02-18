@@ -1,3 +1,5 @@
+// prisma/schema.prisma - COMPLETE VERSION WITH TELEGRAM
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,13 +10,13 @@ datasource db {
 }
 
 enum UserRole {
-  SUPER_ADMIN      // Web only
-  DISTRICT_ADMIN   // Web only
-  SCHOOL_ADMIN     // Web only
-  DIRECTOR         // Web + Telegram + Turnstile
-  TEACHER          // Web + Telegram + Turnstile
-  STUDENT          // Turnstile only (Face Recognition)
-  PARENT           // Telegram only
+  SUPER_ADMIN
+  DISTRICT_ADMIN
+  SCHOOL_ADMIN
+  DIRECTOR
+  TEACHER
+  STUDENT
+  PARENT
 }
 
 enum UserStatus {
@@ -32,7 +34,8 @@ enum AttendanceStatus {
   PRESENT
   LATE
   ABSENT
-  EXCUSED
+  LEAVE
+  HOLIDAY
 }
 
 enum PaymentStatus {
@@ -101,6 +104,7 @@ model Class {
   academicYear  String
   
   students      Student[]
+  teacherClasses TeacherClass[]
   
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
@@ -108,9 +112,6 @@ model Class {
   @@unique([schoolId, grade, section, academicYear])
 }
 
-// ============================
-// STUDENT - Turniket uchun
-// ============================
 model Student {
   id            String      @id @default(uuid())
   userId        String?     @unique
@@ -121,22 +122,29 @@ model Student {
   classId       String
   class         Class       @relation(fields: [classId], references: [id])
   
-  // Personal info
   firstName     String
   lastName      String
   middleName    String?
   dateOfBirth   DateTime?
   gender        Gender
   phone         String?
-  telegramId    String?
   
-  // CRITICAL: Photo for turnstile face recognition
-  // Format: JPEG/PNG base64 or file path
-  // File naming: {studentId}_2_0_{studentId}_0.jpg
-  photo         String?     // Passport-style photo for face recognition
+  telegramId        String?  @unique
+  telegramUsername  String?
+  telegramChatId    String?
+  isTelegramActive  Boolean  @default(false)
   
-  // Additional
-  enrollNumber  String?     @unique  // For turnstile device ID
+  photo         String?
+  facePersonId  String?     @unique
+  enrollNumber  String?     @unique
+
+  // ==========================================
+  // ✅ SMS TO'LOV SOZLAMALARI
+  // ==========================================
+  isSmsEnabled       Boolean   @default(true)
+  smsPaidUntil       DateTime?
+  smsPaymentType     String?   // "MONTHLY", "YEARLY"
+  smsReminderSent    Boolean   @default(false)
   
   parents       Parent[]
   attendances   Attendance[]
@@ -149,9 +157,6 @@ model Student {
   @@index([classId])
 }
 
-// ============================
-// TEACHER - Turniket uchun
-// ============================
 model Teacher {
   id            String      @id @default(uuid())
   userId        String      @unique
@@ -160,18 +165,25 @@ model Teacher {
   schoolId      String
   school        School      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   
-  // Personal info
   firstName     String
   lastName      String
   phone         String
-  telegramId    String?
   subjects      String[]
   
-  // CRITICAL: Photo for turnstile face recognition
-  photo         String?     // Passport-style photo
+  telegramId        String?  @unique
+  telegramUsername  String?
+  telegramChatId    String?
+  isTelegramActive  Boolean  @default(false)
   
-  // Additional
-  enrollNumber  String?     @unique  // For turnstile device ID
+  photo         String?
+  facePersonId  String?     @unique
+  enrollNumber  String?     @unique
+  
+  teacherClasses TeacherClass[]
+  
+  schedule              TeacherSchedule?
+  payrollAttendances    TeacherAttendance[] @relation("TeacherPayrollAttendance")
+  payrolls              TeacherPayroll[]    @relation("TeacherPayroll")
   
   attendances   Attendance[]
   
@@ -181,9 +193,109 @@ model Teacher {
   @@index([schoolId])
 }
 
-// ============================
-// DIRECTOR - Turniket uchun
-// ============================
+model TeacherClass {
+  id        String   @id @default(uuid())
+  
+  teacherId String
+  teacher   Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  
+  classId   String
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@unique([teacherId, classId])
+}
+
+model TeacherSchedule {
+  id        String   @id @default(uuid())
+  teacherId String   @unique
+  teacher   Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  
+  workDays       Json
+  startTime      String
+  endTime        String
+  hoursPerDay    Float
+  daysPerWeek    Int
+  hoursPerMonth  Float
+  
+  baseSalary     Float
+  hourlyRate     Float
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("teacher_schedules")
+}
+
+model TeacherAttendance {
+  id        String   @id @default(uuid())
+  teacherId String
+  teacher   Teacher  @relation("TeacherPayrollAttendance", fields: [teacherId], references: [id], onDelete: Cascade)
+  
+  date      DateTime
+  
+  checkInTime   DateTime?
+  checkOutTime  DateTime?
+  
+  workDuration  Float?
+  isLate        Boolean  @default(false)
+  lateMinutes   Int      @default(0)
+  leftEarly     Boolean  @default(false)
+  earlyMinutes  Int      @default(0)
+  isAbsent      Boolean  @default(false)
+  
+  status        AttendanceStatus @default(ABSENT)
+  notes         String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([teacherId, date])
+  @@index([teacherId, date])
+  @@map("teacher_attendances")
+}
+
+model TeacherPayroll {
+  id        String   @id @default(uuid())
+  teacherId String
+  teacher   Teacher  @relation("TeacherPayroll", fields: [teacherId], references: [id], onDelete: Cascade)
+  
+  month     String
+  
+  expectedDays       Int
+  expectedHours      Float
+  baseSalary         Float
+  
+  totalDaysWorked    Int
+  totalHoursWorked   Float
+  
+  lateDays           Int      @default(0)
+  lateMinutes        Int      @default(0)
+  earlyLeaveDays     Int      @default(0)
+  earlyLeaveMinutes  Int      @default(0)
+  absentDays         Int      @default(0)
+  
+  missedHours        Float
+  penaltyAmount      Float
+  
+  bonusAmount        Float    @default(0)
+  bonusReason        String?
+  
+  actualSalary       Float
+  
+  isPaid             Boolean  @default(false)
+  paidAt             DateTime?
+  paymentMethod      String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([teacherId, month])
+  @@index([teacherId, month])
+  @@map("teacher_payrolls")
+}
+
 model Director {
   id            String      @id @default(uuid())
   userId        String      @unique
@@ -192,17 +304,18 @@ model Director {
   schoolId      String
   school        School      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   
-  // Personal info
   firstName     String
   lastName      String
   phone         String
-  telegramId    String?
   
-  // CRITICAL: Photo for turnstile face recognition
-  photo         String?     // Passport-style photo
+  telegramId        String?  @unique
+  telegramUsername  String?
+  telegramChatId    String?
+  isTelegramActive  Boolean  @default(false)
   
-  // Additional
-  enrollNumber  String?     @unique  // For turnstile device ID
+  photo         String?
+  facePersonId  String?     @unique
+  enrollNumber  String?     @unique
   
   attendances   Attendance[]
   
@@ -212,9 +325,6 @@ model Director {
   @@index([schoolId])
 }
 
-// ============================
-// PARENT - Telegram only (NO photo needed)
-// ============================
 model Parent {
   id               String      @id @default(uuid())
   userId           String?     @unique
@@ -226,11 +336,13 @@ model Parent {
   firstName        String
   lastName         String
   phone            String      @unique
-  telegramId       String?     @unique
-  telegramChatId   String?
-  isTelegramActive Boolean     @default(false)
   
-  relationship     String      // father, mother, guardian
+  telegramId        String?  @unique
+  telegramUsername  String?
+  telegramChatId    String?
+  isTelegramActive  Boolean  @default(false)
+  
+  relationship     String
   
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
@@ -241,7 +353,6 @@ model Attendance {
   schoolId      String
   school        School           @relation(fields: [schoolId], references: [id])
   
-  // Polymorphic - student OR teacher OR director
   studentId     String?
   student       Student?         @relation(fields: [studentId], references: [id])
   teacherId     String?
@@ -254,7 +365,8 @@ model Attendance {
   checkInTime   DateTime?
   checkOutTime  DateTime?
   lateMinutes   Int?
-  deviceId      String?          // Turnstile device ID
+  lateCount     Int      @default(0)
+  deviceId      String?
   notes         String?
   
   createdAt     DateTime         @default(now())
@@ -275,7 +387,7 @@ model Payment {
   dueDate       DateTime
   paidDate      DateTime?
   status        PaymentStatus  @default(PENDING)
-  month         String         // "2026-02"
+  month         String
   academicYear  String
   notes         String?
   
@@ -289,13 +401,13 @@ model Payment {
 
 model Notification {
   id            String      @id @default(uuid())
-  recipientType String      // PARENT, TEACHER, DIRECTOR
+  recipientType String
   recipientId   String
   
-  type          String      // ATTENDANCE, PAYMENT, REMINDER
+  type          String
   title         String
   message       String
-  sentVia       String      // TELEGRAM, SMS
+  sentVia       String
   
   isSent        Boolean     @default(false)
   sentAt        DateTime?
@@ -304,4 +416,32 @@ model Notification {
   updatedAt     DateTime    @updatedAt
   
   @@index([recipientId, isSent])
+}
+
+model TelegramSession {
+  id            String   @id @default(uuid())
+  chatId        String   @unique
+  telegramId    String
+  
+  userId        String?
+  userType      String?
+  state         String   @default("START")
+  data          Json?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@index([chatId])
+  @@index([telegramId])
+}
+
+model SmsLog {
+  id        String   @id @default(uuid())
+  recipient String
+  message   String
+  status    String
+  sentAt    DateTime @default(now())
+  
+  @@index([recipient])
+  @@index([sentAt])
 }

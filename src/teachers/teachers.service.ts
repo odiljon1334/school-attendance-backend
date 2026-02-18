@@ -29,9 +29,12 @@ export class TeachersService {
         lastName: createTeacherDto.lastName,
         phone: createTeacherDto.phone,
         telegramId: createTeacherDto.telegramId,
-        subjects: createTeacherDto.subjects || [],
+        subjects: Array.isArray(createTeacherDto.subjects)
+          ? createTeacherDto.subjects
+          : (typeof createTeacherDto.subjects === 'string' && createTeacherDto.subjects
+              ? (createTeacherDto.subjects as string).split(',').map((s: string) => s.trim())
+              : undefined),
         photo: createTeacherDto.photo,
-        enrollNumber: createTeacherDto.enrollNumber,
       },
       include: {
         user: {
@@ -46,6 +49,16 @@ export class TeachersService {
         school: true,
       },
     });
+
+    // ✅ Assign classes if provided
+    if (createTeacherDto.classIds && createTeacherDto.classIds.length > 0) {
+      await this.prisma.teacherClass.createMany({
+        data: createTeacherDto.classIds.map((classId: string) => ({
+          teacherId: teacher.id,
+          classId,
+        })),
+      });
+    }
 
     // TODO: Upload photo to turnstile if exists
     // if (teacher.photo) {
@@ -75,9 +88,14 @@ export class TeachersService {
           },
         },
         school: true,
+        teacherClasses: { // ✅ FIXED: Include assigned classes
+          include: {
+            class: true,
+          },
+        },
         _count: {
           select: {
-            attendances: true, // FIXED: was attendanceLogs
+            attendances: true,
           },
         },
       },
@@ -100,12 +118,17 @@ export class TeachersService {
             status: true,
           },
         },
-        school: true, // FIXED: was missing
-        attendances: { // FIXED: was attendanceLogs
+        school: true,
+        teacherClasses: { // ✅ FIXED: Include assigned classes
+          include: {
+            class: true,
+          },
+        },
+        attendances: {
           orderBy: {
             date: 'desc',
           },
-          take: 30, // Last 30 days
+          take: 30,
         },
       },
     });
@@ -154,7 +177,11 @@ export class TeachersService {
         lastName: updateTeacherDto.lastName,
         phone: updateTeacherDto.phone,
         telegramId: updateTeacherDto.telegramId,
-        subjects: updateTeacherDto.subjects,
+        subjects: Array.isArray(updateTeacherDto.subjects)
+        ? updateTeacherDto.subjects
+        : (typeof updateTeacherDto.subjects === 'string' && updateTeacherDto.subjects
+            ? (updateTeacherDto.subjects as string).split(',').map((s: string) => s.trim())
+            : undefined),
         photo: updateTeacherDto.photo,
       },
       include: {
@@ -168,8 +195,31 @@ export class TeachersService {
           },
         },
         school: true,
+        teacherClasses: { // ✅ FIXED: Include assigned classes
+          include: {
+            class: true,
+          },
+        },
       },
     });
+
+    // ✅ Update assigned classes if provided
+    if (updateTeacherDto.classIds) {
+      // Delete old assignments
+      await this.prisma.teacherClass.deleteMany({
+        where: { teacherId: id },
+      });
+
+      // Create new assignments
+      if (updateTeacherDto.classIds.length > 0) {
+        await this.prisma.teacherClass.createMany({
+          data: updateTeacherDto.classIds.map((classId: string) => ({
+            teacherId: id,
+            classId,
+          })),
+        });
+      }
+    }
 
     // TODO: Update photo on turnstile if changed
     // if (updateTeacherDto.photo && updateTeacherDto.photo !== existingTeacher.photo) {
@@ -191,7 +241,8 @@ export class TeachersService {
     }
 
     // Delete related records
-    await this.prisma.attendance.deleteMany({ where: { teacherId: id } }); // FIXED: was attendanceLog
+    await this.prisma.teacherClass.deleteMany({ where: { teacherId: id } }); // ✅ FIXED
+    await this.prisma.attendance.deleteMany({ where: { teacherId: id } });
 
     // Delete teacher
     await this.prisma.teacher.delete({ where: { id } });
@@ -248,7 +299,12 @@ export class TeachersService {
             status: true,
           },
         },
-        school: true, // FIXED: now included properly
+        school: true,
+        teacherClasses: { // ✅ FIXED: Include assigned classes
+          include: {
+            class: true,
+          },
+        },
       },
     });
 
@@ -264,9 +320,9 @@ export class TeachersService {
       telegramId: teacher.telegramId,
       subjects: teacher.subjects,
       photo: teacher.photo,
-      enrollNumber: teacher.enrollNumber,
       user: teacher.user,
-      school: teacher.school, // FIXED: now available
+      school: teacher.school,
+      assignedClasses: teacher.teacherClasses, // ✅ ADDED
     };
   }
 }

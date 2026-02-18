@@ -274,14 +274,16 @@ export class StudentsService {
     const present = attendances.filter(a => a.status === 'PRESENT').length;
     const late = attendances.filter(a => a.status === 'LATE').length;
     const absent = attendances.filter(a => a.status === 'ABSENT').length;
-    const excused = attendances.filter(a => a.status === 'EXCUSED').length;
+    const leave = attendances.filter(a => a.status === 'LEAVE').length;
+    const holiday = attendances.filter(a => a.status === 'HOLIDAY').length;
 
     return {
       total,
       present,
       late,
       absent,
-      excused,
+      leave,
+      holiday,
       attendanceRate: total > 0 ? ((present + late) / total * 100).toFixed(2) : '0',
     };
   }

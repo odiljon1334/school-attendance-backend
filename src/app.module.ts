@@ -18,6 +18,8 @@ import { ClassesModule } from './classes/classes.module';
 import { UsersModule } from './users/users.module';
 import { EnrollPicModule } from './enroll-pic/enroll-pic.module';
 import { TurnstileModule } from './turnstile/turnstile.module';
+import { DirectorsModule } from './directors/directors.module';
+import { PayrollModule } from './payroll/payroll.module';
 
 @Module({
   imports: [
@@ -41,6 +43,9 @@ import { TurnstileModule } from './turnstile/turnstile.module';
     UsersModule,
     EnrollPicModule,
     TurnstileModule,
+    ClassesModule,
+    DirectorsModule,
+    PayrollModule,
   ],
   controllers: [AppController],
   providers: [AppService],

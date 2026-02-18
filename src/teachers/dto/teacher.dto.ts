@@ -4,7 +4,7 @@ import {
   IsOptional,
   IsEmail,
   IsArray,
-  ArrayNotEmpty,
+  IsUUID,
 } from 'class-validator';
 
 export class CreateTeacherDto {
@@ -37,8 +37,8 @@ export class CreateTeacherDto {
   phone?: string;
 
   @IsArray()
-  @ArrayNotEmpty()
-  subjects: string[];
+  @IsOptional() // ✅ FIXED: Made optional (not required)
+  subjects?: string[];
 
   @IsString()
   @IsOptional()
@@ -48,15 +48,17 @@ export class CreateTeacherDto {
   @IsOptional()
   photo?: string;
 
-  @IsString()
+  // ✅ ADDED: Class IDs for assignment
+  @IsArray()
+  @IsUUID('4', { each: true })
   @IsOptional()
-  enrollNumber?: string
+  classIds?: string[];
 }
 
 export class UpdateTeacherDto {
   @IsString()
-  @IsNotEmpty()
-  password: string;
+  @IsOptional() // ✅ FIXED: Made optional (not required)
+  password?: string;
 
   @IsEmail()
   @IsOptional()
@@ -85,4 +87,10 @@ export class UpdateTeacherDto {
   @IsString()
   @IsOptional()
   photo?: string;
+
+  // ✅ ADDED: Class IDs for reassignment
+  @IsArray()
+  @IsUUID('4', { each: true })
+  @IsOptional()
+  classIds?: string[];
 }
