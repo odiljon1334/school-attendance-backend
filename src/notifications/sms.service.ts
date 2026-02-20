@@ -1,7 +1,8 @@
-// src/notifications/sms.service.ts - ANDROID SMS GATEWAY
+// src/notifications/sms.service.ts - WITH REDIS RATE LIMITING
 
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { RedisService } from '../redis/redis.service';
 import axios from 'axios';
 
 interface SmsGateway {
@@ -18,7 +19,10 @@ export class SmsService {
   private currentIndex = 0;
   private gateways: SmsGateway[] = [];
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private redis: RedisService,  // ← REDIS QO'SHILDI
+  ) {
     this.initGateways();
   }
 
@@ -47,9 +51,26 @@ export class SmsService {
   }
 
   // ==========================================
-  // ✅ MAIN: Send SMS (Round Robin)
+  // ✅ MAIN: Send SMS (with Rate Limiting)
   // ==========================================
   async sendSms(phoneNumber: string, message: string): Promise<boolean> {
+    // ✅ 1. Rate limit tekshiruvi (Redis)
+    const rateLimit = await this.redis.checkSmsRateLimit(phoneNumber, 3); // Max 3 per minute
+
+    if (!rateLimit.allowed) {
+      this.logger.warn(
+        `⚠️ Rate limit exceeded for ${phoneNumber}. ` +
+        `Remaining: ${rateLimit.remaining}. ` +
+        `Resets in ${rateLimit.resetIn}s.`
+      );
+      return false;
+    }
+
+    this.logger.log(
+      `Rate limit OK: ${phoneNumber} - ${rateLimit.remaining} remaining`
+    );
+
+    // ✅ 2. Gateway tanlash
     if (this.gateways.length === 0) {
       this.logger.error('No SMS gateways configured!');
       return false;
@@ -69,6 +90,7 @@ export class SmsService {
     }
 
     try {
+      // ✅ 3. SMS yuborish
       await axios.post(
         `${gateway.url}/message`,
         {
@@ -86,13 +108,17 @@ export class SmsService {
       );
 
       gateway.dailyCount++;
+
+      // ✅ 4. Redis counter yangilash
+      await this.redis.incrementTodaySms();
+
       this.logger.log(
-        `SMS sent to ${phoneNumber} via ${gateway.url} (daily: ${gateway.dailyCount})`
+        `✅ SMS sent to ${phoneNumber} via ${gateway.url} (daily: ${gateway.dailyCount})`
       );
       return true;
     } catch (error) {
       this.logger.error(
-        `Failed to send SMS to ${phoneNumber} via ${gateway.url}:`,
+        `❌ Failed to send SMS to ${phoneNumber} via ${gateway.url}:`,
         error.message,
       );
       return await this.sendWithFallback(phoneNumber, message, gateway.url);
@@ -107,30 +133,31 @@ export class SmsService {
     message: string,
     failedUrl: string,
   ): Promise<boolean> {
-    const otherGateways = this.gateways.filter(g => g.url !== failedUrl);
+    const otherGateways = this.gateways.filter(
+      g => g.url !== failedUrl && g.dailyCount < 1000,
+    );
 
     for (const gateway of otherGateways) {
       try {
-        await axios.post(
+        const response = await axios.post(
           `${gateway.url}/message`,
-          {
-            textMessage: { text: message },
-            phoneNumbers: [phoneNumber],
-          },
+          { textMessage: { text: message }, phoneNumbers: [phoneNumber] },
           {
             auth: { username: gateway.username, password: gateway.password },
-            timeout: 10000,
+            timeout: 5000,
           },
         );
-        gateway.dailyCount++;
-        this.logger.log(`SMS sent via fallback gateway: ${gateway.url}`);
-        return true;
-      } catch {
-        continue;
+
+        if (response.status === 200) {
+          gateway.dailyCount++;
+          await this.redis.incrementTodaySms();
+          this.logger.log(`✅ Fallback success: ${gateway.url}`);
+          return true;
+        }
+      } catch (e) {
+        this.logger.warn(`Fallback gateway ${gateway.url} ham ishlamadi.`);
       }
     }
-
-    this.logger.error(`All gateways failed for ${phoneNumber}`);
     return false;
   }
 
@@ -199,16 +226,42 @@ export class SmsService {
     );
   }
 
+  // ==========================================
+  // ✅ STATISTICS (Redis'dan)
+  // ==========================================
+  async getTodaySmsCount(): Promise<number> {
+    return await this.redis.getTodaySmsCount();
+  }
+
+  async getSmsRateLimitStatus(phone: string): Promise<{
+    count: number;
+    remaining: number;
+    resetIn: number;
+  }> {
+    const count = await this.redis.getSmsCount(phone);
+    const ttl = await this.redis.ttl(`sms:limit:${phone}`);
+
+    return {
+      count,
+      remaining: Math.max(0, 3 - count), // Max 3 per minute
+      resetIn: ttl > 0 ? ttl : 0,
+    };
+  }
 
   // ==========================================
   // ✅ Gateway status
   // ==========================================
-  getStatus() {
-    return this.gateways.map((g, i) => ({
-      device: i + 1,
-      url: g.url,
-      dailyCount: g.dailyCount,
-      lastReset: g.lastReset,
-    }));
+  async getStatus() {
+    const todayTotal = await this.getTodaySmsCount();
+
+    return {
+      todayTotal,
+      gateways: this.gateways.map((g, i) => ({
+        device: i + 1,
+        url: g.url,
+        dailyCount: g.dailyCount,
+        lastReset: g.lastReset,
+      })),
+    };
   }
 }

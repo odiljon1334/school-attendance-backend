@@ -20,7 +20,7 @@ export class EnrollPicService {
     }
 
     // Get all users with photos from school
-    const [students, teachers, directors] = await Promise.all([
+    const [students, teachers] = await Promise.all([
       this.prisma.student.findMany({
         where: { schoolId, photo: { not: null } },
         select: { id: true, photo: true, firstName: true, lastName: true },
@@ -29,16 +29,11 @@ export class EnrollPicService {
         where: { schoolId, photo: { not: null } },
         select: { id: true, photo: true, firstName: true, lastName: true },
       }),
-      this.prisma.director.findMany({
-        where: { schoolId, photo: { not: null } },
-        select: { id: true, photo: true, firstName: true, lastName: true },
-      }),
     ]);
 
     const allUsers = [
       ...students.map(s => ({ ...s, type: 'student' })),
       ...teachers.map(t => ({ ...t, type: 'teacher' })),
-      ...directors.map(d => ({ ...d, type: 'director' })),
     ];
 
     console.log(`📸 Exporting ${allUsers.length} photos for school ${schoolId}`);
@@ -103,7 +98,7 @@ export class EnrollPicService {
       }
 
       // Get users
-      const [students, teachers, directors] = await Promise.all([
+      const [students, teachers] = await Promise.all([
         this.prisma.student.findMany({
           where: { schoolId: school.id, photo: { not: null } },
           select: { id: true, photo: true, firstName: true, lastName: true },
@@ -112,13 +107,9 @@ export class EnrollPicService {
           where: { schoolId: school.id, photo: { not: null } },
           select: { id: true, photo: true, firstName: true, lastName: true },
         }),
-        this.prisma.director.findMany({
-          where: { schoolId: school.id, photo: { not: null } },
-          select: { id: true, photo: true, firstName: true, lastName: true },
-        }),
       ]);
 
-      const allUsers = [...students, ...teachers, ...directors];
+      const allUsers = [...students, ...teachers];
 
       // Save photos
       for (const user of allUsers) {

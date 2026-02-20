@@ -2,69 +2,116 @@ import {
   Controller,
   Post,
   Body,
-  Get,
   UseGuards,
   Request,
   HttpCode,
   HttpStatus,
-  Patch,
+  Get,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { LoginDto, RegisterDto, ChangePasswordDto } from './dto/auth.dto';
 import { JwtAuthGuard } from './guards/jwt.auth.guards';
-import { LoginDto, RegisterDto, ChangePasswordDto, ResetPasswordDto } from './dto/auth.dto';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  // ==========================================
+  // ✅ USER ENDPOINTS
+  // ==========================================
+
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
-  register(@Body() registerDto: RegisterDto) {
+  async register(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto);
   }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  login(@Body() loginDto: LoginDto) {
+  async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
-  }
-
-  @Get('profile')
-  @UseGuards(JwtAuthGuard)
-  getProfile(@Request() req: any) {
-    return this.authService.validateUser(req.user.sub);
   }
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  getMe(@Request() req: any) {
+  async getProfile(@Request() req) {
     return this.authService.validateUser(req.user.sub);
-  }
-
-  @Patch('change-password')
-  @UseGuards(JwtAuthGuard)
-  @HttpCode(HttpStatus.OK)
-  changePassword(
-    @Request() req: any,
-    @Body() dto: ChangePasswordDto,
-  ) {
-    return this.authService.changePassword(
-      req.user.sub,
-      dto.oldPassword,
-      dto.newPassword,
-    );
-  }
-
-  @Post('reset-password')
-  @HttpCode(HttpStatus.OK)
-  resetPassword(@Body() dto: ResetPasswordDto) {
-    return this.authService.resetPassword(dto.email);
   }
 
   @Post('refresh')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  refreshToken(@Request() req: any) {
+  async refresh(@Request() req) {
     return this.authService.refreshToken(req.user.sub);
+  }
+
+  @Post('change-password')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async changePassword(
+    @Request() req,
+    @Body() changePasswordDto: ChangePasswordDto,
+  ) {
+    return this.authService.changePassword(
+      req.user.sub,
+      changePasswordDto.oldPassword,
+      changePasswordDto.newPassword,
+    );
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(@Body('email') email: string) {
+    return this.authService.resetPassword(email);
+  }
+
+  // ==========================================
+  // ✅ NEW: SCHOOL ENDPOINTS
+  // ==========================================
+
+  @Post('school/login')
+  @HttpCode(HttpStatus.OK)
+  async loginSchool(@Body() loginDto: LoginDto) {
+    console.log('School login api:', loginDto);
+    return this.authService.loginSchool(loginDto);
+  }
+
+  @Get('school/me')
+  @UseGuards(JwtAuthGuard)
+  async getSchoolProfile(@Request() req) {
+    // Check if token is for School
+    if (req.user.type !== 'SCHOOL') {
+      return { error: 'Not a school token' };
+    }
+    return this.authService.validateSchool(req.user.schoolId);
+  }
+
+  @Post('school/refresh')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async refreshSchool(@Request() req) {
+    // Check if token is for School
+    if (req.user.type !== 'SCHOOL') {
+      return { error: 'Not a school token' };
+    }
+    return this.authService.refreshSchoolToken(req.user.schoolId);
+  }
+
+  @Post('school/change-password')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async changeSchoolPassword(
+    @Request() req,
+    @Body() changePasswordDto: ChangePasswordDto,
+  ) {
+    // Check if token is for School
+    if (req.user.type !== 'SCHOOL') {
+      return { error: 'Not a school token' };
+    }
+    return this.authService.changeSchoolPassword(
+      req.user.schoolId,
+      changePasswordDto.oldPassword,
+      changePasswordDto.newPassword,
+    );
   }
 }

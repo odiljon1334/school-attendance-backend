@@ -54,7 +54,6 @@ export class DistrictsService {
               select: {
                 students: true,
                 teachers: true,
-                directors: true,
                 classes: true,
               },
             },
@@ -142,7 +141,6 @@ export class DistrictsService {
               select: {
                 students: true,
                 teachers: true,
-                directors: true,
                 classes: true,
               },
             },
@@ -164,7 +162,6 @@ export class DistrictsService {
     const totalSchools = district._count.schools;
     const totalStudents = district.schools.reduce((sum, school) => sum + school._count.students, 0);
     const totalTeachers = district.schools.reduce((sum, school) => sum + school._count.teachers, 0);
-    const totalDirectors = district.schools.reduce((sum, school) => sum + school._count.directors, 0);
     const totalClasses = district.schools.reduce((sum, school) => sum + school._count.classes, 0);
 
     // Get today's attendance
@@ -195,7 +192,6 @@ export class DistrictsService {
       totalSchools,
       totalStudents,
       totalTeachers,
-      totalDirectors,
       totalClasses,
       todayAttendance: {
         present: presentCount,

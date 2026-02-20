@@ -81,7 +81,6 @@ export class UsersService {
         status: true,
         student: true,
         teacher: true,
-        director: true,
         parent: true,
         createdAt: true,
         updatedAt: true,

@@ -18,8 +18,9 @@ import { ClassesModule } from './classes/classes.module';
 import { UsersModule } from './users/users.module';
 import { EnrollPicModule } from './enroll-pic/enroll-pic.module';
 import { TurnstileModule } from './turnstile/turnstile.module';
-import { DirectorsModule } from './directors/directors.module';
 import { PayrollModule } from './payroll/payroll.module';
+import { RedisModule } from './redis/redis.module';
+import { CsvImportModule } from './csv-import/csv-import.module';
 
 @Module({
   imports: [
@@ -44,8 +45,9 @@ import { PayrollModule } from './payroll/payroll.module';
     EnrollPicModule,
     TurnstileModule,
     ClassesModule,
-    DirectorsModule,
     PayrollModule,
+    RedisModule,
+    CsvImportModule,
   ],
   controllers: [AppController],
   providers: [AppService],

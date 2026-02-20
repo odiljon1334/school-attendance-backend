@@ -1,478 +1,189 @@
-// src/hikvision/hikvision.service.ts - UPDATED VERSION
-
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { HikvisionApiService } from './hikvision-api.service';
 import { CreateDeviceDto, UpdateDeviceDto, RegisterFaceDto } from './dto/hikvision.dto';
-import { ConfigService } from '@nestjs/config';
 import { PayrollService } from '../payroll/payroll.service';
+import { AttendanceStatus } from '@prisma/client';
 
 @Injectable()
 export class HikvisionService {
+  private readonly logger = new Logger('HikvisionService');
+
   constructor(
     private prisma: PrismaService,
     private hikvisionApi: HikvisionApiService,
-    private payrollService: PayrollService,  
-    private configService: ConfigService,
+    private payrollService: PayrollService,
   ) {}
 
   // ────────────────────────────────────────────────────────
-  // DEVICE MANAGEMENT (No changes needed)
+  // DEVICE MANAGEMENT
   // ────────────────────────────────────────────────────────
 
-  async createDevice(createDeviceDto: CreateDeviceDto) {
-    const { schoolId, deviceId, ipAddress, port, username, password } = createDeviceDto;
-
-    const school = await this.prisma.school.findUnique({ where: { id: schoolId } });
-    if (!school) {
-      throw new NotFoundException('School not found');
-    }
+  async createDevice(dto: CreateDeviceDto) {
+    const school = await this.prisma.school.findUnique({ where: { id: dto.schoolId } });
+    if (!school) throw new NotFoundException('School not found');
 
     return this.prisma.hikvisionDevice.create({
-      data: {
-        ...createDeviceDto,
-        port: port || 80,
-        isActive: createDeviceDto.isActive !== false,
-      },
-      include: {
-        school: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-          },
-        },
-      },
+      data: { ...dto, port: dto.port || 80 },
     });
   }
 
   async findAll(schoolId?: string) {
-    const where: any = {};
-    if (schoolId) {
-      where.schoolId = schoolId;
-    }
-
     return this.prisma.hikvisionDevice.findMany({
-      where,
-      include: {
-        school: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-          },
-        },
-        _count: {
-          select: {
-            attendanceLogs: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
+      where: schoolId ? { schoolId } : {},
+      include: { school: { select: { name: true, code: true } } },
     });
   }
 
   async findOne(id: string) {
-    const device = await this.prisma.hikvisionDevice.findUnique({
-      where: { id },
-      include: {
-        school: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-          },
-        },
-        _count: {
-          select: {
-            attendanceLogs: true,
-          },
-        },
-      },
-    });
-
-    if (!device) {
-      throw new NotFoundException(`Device with ID ${id} not found`);
-    }
-
+    const device = await this.prisma.hikvisionDevice.findUnique({ where: { id } });
+    if (!device) throw new NotFoundException('Device not found');
     return device;
-  }
-
-  async update(id: string, updateDeviceDto: UpdateDeviceDto) {
-    const device = await this.findOne(id);
-
-    if (
-      updateDeviceDto.ipAddress ||
-      updateDeviceDto.port ||
-      updateDeviceDto.username ||
-      updateDeviceDto.password
-    ) {
-      const canConnect = await this.hikvisionApi.testConnection(
-        updateDeviceDto.ipAddress || device.ipAddress,
-        updateDeviceDto.port || device.port,
-        updateDeviceDto.username || device.username,
-        updateDeviceDto.password || device.password,
-      );
-
-      if (!canConnect) {
-        throw new BadRequestException('Cannot connect to device with new settings.');
-      }
-    }
-
-    return this.prisma.hikvisionDevice.update({
-      where: { id },
-      data: updateDeviceDto,
-      include: {
-        school: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-          },
-        },
-      },
-    });
-  }
-
-  async remove(id: string) {
-    await this.findOne(id);
-    await this.prisma.hikvisionDevice.delete({ where: { id } });
-    return { message: 'Device deleted successfully' };
   }
 
   async testDevice(id: string) {
     const device = await this.findOne(id);
-
-    const canConnect = await this.hikvisionApi.testConnection(
-      device.ipAddress,
-      device.port,
-      device.username,
-      device.password,
+    const online = await this.hikvisionApi.testConnection(
+      device.ipAddress, device.port, device.username, device.password
     );
+    return { success: online, message: online ? 'Online' : 'Offline' };
+  }
 
-    if (!canConnect) {
-      return {
-        success: false,
-        message: 'Cannot connect to device',
-      };
-    }
+  async update(id: string, dto: UpdateDeviceDto) {
+    await this.findOne(id);
+    return this.prisma.hikvisionDevice.update({ where: { id }, data: dto });
+  }
 
-    const info = await this.hikvisionApi.getDeviceInfo(
-      device.ipAddress,
-      device.port,
-      device.username,
-      device.password,
-    );
-
-    return {
-      success: true,
-      message: 'Device is online',
-      deviceInfo: info,
-    };
+  async remove(id: string) {
+    await this.findOne(id);
+    return this.prisma.hikvisionDevice.delete({ where: { id } });
   }
 
   // ────────────────────────────────────────────────────────
-  // FACE REGISTRATION - UPDATED
+  // FACE REGISTRATION
   // ────────────────────────────────────────────────────────
 
-  async registerFace(registerFaceDto: RegisterFaceDto) {
-    const { deviceId, studentId, teacherId, directorId, faceImage } = registerFaceDto;
-
-    const device = await this.prisma.hikvisionDevice.findUnique({ where: { id: deviceId } });
-    if (!device) {
-      throw new NotFoundException('Device not found');
+  async registerFace(dto: RegisterFaceDto) {
+    const device = await this.findOne(dto.deviceId);
+    
+    let personData: { id: string, name: string, prefix: string };
+    
+    if (dto.studentId) {
+      const s = await this.prisma.student.findUnique({ where: { id: dto.studentId } });
+      if (!s) throw new NotFoundException('Student not found');
+      personData = { id: s.id, name: `${s.firstName} ${s.lastName}`, prefix: 'STU' };
+    } else if (dto.teacherId) {
+      const t = await this.prisma.teacher.findUnique({ where: { id: dto.teacherId } });
+      if (!t) throw new NotFoundException('Teacher not found');
+      personData = { id: t.id, name: `${t.firstName} ${t.lastName}`, prefix: 'TCH' };
     }
 
-    const personTypes = [studentId, teacherId, directorId].filter(Boolean);
-    if (personTypes.length !== 1) {
-      throw new BadRequestException('Provide exactly one of: studentId, teacherId, or directorId');
-    }
+    const facePersonId = `${personData.prefix}_${personData.id}`;
 
-    let personId: string;
-    let personName: string;
-    let facePersonId: string;
-
-    if (studentId) {
-      const student = await this.prisma.student.findUnique({
-        where: { id: studentId },
-        select: { id: true, firstName: true, lastName: true },
-      });
-      if (!student) throw new NotFoundException('Student not found');
-      personId = student.id;
-      personName = `${student.firstName} ${student.lastName}`;
-      
-      // ✅ GENERATE UNIQUE FACE ID
-      facePersonId = `STU_${student.id}`;
-      
-    } else if (teacherId) {
-      const teacher = await this.prisma.teacher.findUnique({
-        where: { id: teacherId },
-        select: { id: true, firstName: true, lastName: true },
-      });
-      if (!teacher) throw new NotFoundException('Teacher not found');
-      personId = teacher.id;
-      personName = `${teacher.firstName} ${teacher.lastName}`;
-      
-      // ✅ GENERATE UNIQUE FACE ID
-      facePersonId = `TCH_${teacher.id}`;
-      
-    } else {
-      const director = await this.prisma.director.findUnique({
-        where: { id: directorId! },
-        select: { id: true, firstName: true, lastName: true },
-      });
-      if (!director) throw new NotFoundException('Director not found');
-      personId = director.id;
-      personName = `${director.firstName} ${director.lastName}`;
-      
-      // ✅ GENERATE UNIQUE FACE ID
-      facePersonId = `DIR_${director.id}`;
-    }
-
-    // Register face to Hikvision device
     const success = await this.hikvisionApi.registerFace(
-      device.ipAddress,
-      device.port,
-      device.username,
-      device.password,
-      facePersonId,  // ✅ Use unique face ID
-      personName,
-      faceImage,
+      device.ipAddress, device.port, device.username, device.password,
+      facePersonId, personData.name, dto.faceImage
     );
 
-    if (!success) {
-      throw new BadRequestException('Failed to register face to device');
-    }
+    if (!success) throw new BadRequestException('Hikvision registration failed');
 
-    // ✅ SAVE FACE ID TO DATABASE
-    if (studentId) {
-      await this.prisma.student.update({
-        where: { id: studentId },
-        data: { facePersonId },
-      });
-    } else if (teacherId) {
-      await this.prisma.teacher.update({
-        where: { id: teacherId },
-        data: { facePersonId },
-      });
-    } else {
-      await this.prisma.director.update({
-        where: { id: directorId! },
-        data: { facePersonId },
-      });
-    }
+    const updatePayload = { data: { facePersonId } };
+    if (dto.studentId) await this.prisma.student.update({ where: { id: dto.studentId }, ...updatePayload });
+    else if (dto.teacherId) await this.prisma.teacher.update({ where: { id: dto.teacherId }, ...updatePayload });
 
-    return {
-      success: true,
-      message: `Face registered successfully for ${personName}`,
-      personId,
-      facePersonId,
-      deviceId: device.id,
-    };
+    return { success: true, facePersonId };
   }
 
-  async deleteFace(deviceId: string, personId: string) {
-    const device = await this.prisma.hikvisionDevice.findUnique({ where: { id: deviceId } });
-    if (!device) {
-      throw new NotFoundException('Device not found');
-    }
-
+  async deleteFace(deviceId: string, facePersonId: string) {
+    const device = await this.findOne(deviceId);
     const success = await this.hikvisionApi.deleteFace(
-      device.ipAddress,
-      device.port,
-      device.username,
-      device.password,
-      personId,
+      device.ipAddress, device.port, device.username, device.password, facePersonId
     );
-
-    if (!success) {
-      throw new BadRequestException('Failed to delete face from device');
-    }
-
-    return {
-      success: true,
-      message: 'Face deleted successfully',
-    };
+    return { success };
   }
 
   // ────────────────────────────────────────────────────────
-  // EVENT WEBHOOK - COMPLETELY REWRITTEN ✅
+  // WEBHOOK HANDLER
   // ────────────────────────────────────────────────────────
 
   async handleFaceRecognitionEvent(event: any) {
-    // Extract person ID from event
-    const facePersonId = event.employeeNo || event.personId || event.facePersonId;
-    const deviceId = event.deviceId;
-    const timestamp = new Date(event.time || event.timestamp || Date.now());
+    const facePersonId = event.employeeNo || event.personId;
+    if (!facePersonId) return { success: false, message: 'No face ID found' };
 
-    if (!facePersonId || !deviceId) {
-      throw new BadRequestException('Invalid event data: missing facePersonId or deviceId');
-    }
-
-    // Find device
-    const device = await this.prisma.hikvisionDevice.findUnique({ where: { id: deviceId } });
-    if (!device) {
-      throw new NotFoundException('Device not found');
-    }
-
-    // ✅ DETERMINE PERSON TYPE FROM FACE ID PREFIX
-    let personType: 'STUDENT' | 'TEACHER' | 'DIRECTOR' | null = null;
-    
-    if (facePersonId.startsWith('STU_')) {
-      personType = 'STUDENT';
-    } else if (facePersonId.startsWith('TCH_')) {
-      personType = 'TEACHER';
-    } else if (facePersonId.startsWith('DIR_')) {
-      personType = 'DIRECTOR';
-    }
-
-    // ✅ FIND PERSON BY FACE ID
-    const student = personType === 'STUDENT' 
-      ? await this.prisma.student.findUnique({ where: { facePersonId } })
-      : null;
-      
-    const teacher = personType === 'TEACHER'
-      ? await this.prisma.teacher.findUnique({ where: { facePersonId } })
-      : null;
-      
-    const director = personType === 'DIRECTOR'
-      ? await this.prisma.director.findUnique({ where: { facePersonId } })
-      : null;
-
-    if (!student && !teacher && !director) {
-      throw new NotFoundException(`Person not found with facePersonId: ${facePersonId}`);
-    }
-
-    // ✅ ROUTE TO APPROPRIATE HANDLER
-    if (student) {
-      return this.handleStudentAttendance(student, device, timestamp);
-    } else if (teacher) {
-      return this.handleTeacherAttendance(teacher, device, timestamp);
-    } else if (director) {
-      return this.handleDirectorAttendance(director, device, timestamp);
-    }
-  }
-
-  // ✅ PRIVATE: Handle student attendance (existing logic)
-  private async handleStudentAttendance(student: any, device: any, timestamp: Date) {
-    const schoolStartHour = 8;
-    const hour = timestamp.getHours();
-    const minute = timestamp.getMinutes();
-    const totalMinutes = hour * 60 + minute;
-    const schoolStartMinutes = schoolStartHour * 60;
-
-    const isLate = totalMinutes > schoolStartMinutes;
-    const lateMinutes = isLate ? totalMinutes - schoolStartMinutes : 0;
-
-    const attendanceLog = await this.prisma.attendanceLog.create({
-      data: {
-        schoolId: device.schoolId,
-        studentId: student.id,
-        deviceId: device.id,
-        date: timestamp,
-        checkInTime: timestamp,
-        status: isLate ? 'LATE' : 'PRESENT',
-        lateMinutes,
-      },
-    });
-
-    return {
-      success: true,
-      type: 'STUDENT',
-      person: {
-        id: student.id,
-        name: `${student.firstName} ${student.lastName}`,
-      },
-      status: isLate ? 'LATE' : 'PRESENT',
-      lateMinutes,
-      attendanceLog,
-    };
-  }
-
-  // ✅ NEW: Handle teacher attendance with payroll integration
-  private async handleTeacherAttendance(teacher: any, device: any, timestamp: Date) {
-    // Determine check type (IN or OUT)
-    const today = new Date(timestamp);
+    const now = new Date();
+    const today = new Date(now);
     today.setHours(0, 0, 0, 0);
 
-    const lastAttendance = await this.prisma.teacherAttendance.findUnique({
-      where: {
-        teacherId_date: {
-          teacherId: teacher.id,
-          date: today,
-        },
-      },
-    });
+    // 1. Shaxs turini aniqlash va mos handlerga yuborish
+    if (facePersonId.startsWith('STU_')) {
+      const student = await this.prisma.student.findUnique({ where: { facePersonId } });
+      if (student) return this.processStudentAttendance(student, today, now);
+    } 
+    
+    if (facePersonId.startsWith('TCH_')) {
+      const teacher = await this.prisma.teacher.findUnique({ where: { facePersonId } });
+      if (teacher) return this.processTeacherAttendance(teacher, today, now);
+    }
 
-    const checkType = !lastAttendance || !lastAttendance.checkInTime ? 'IN' : 'OUT';
-
-    // ✅ USE PAYROLL SERVICE
-    const attendance = await this.payrollService.processAttendance(
-      teacher.id,
-      checkType,
-      timestamp,
-    );
-
-    // Also create AttendanceLog for compatibility
-    await this.prisma.attendanceLog.create({
-      data: {
-        schoolId: device.schoolId,
-        teacherId: teacher.id,
-        deviceId: device.id,
-        date: timestamp,
-        checkInTime: checkType === 'IN' ? timestamp : null,
-        checkOutTime: checkType === 'OUT' ? timestamp : null,
-        status: 'PRESENT',
-      },
-    });
-
-    return {
-      success: true,
-      type: 'TEACHER',
-      checkType,
-      person: {
-        id: teacher.id,
-        name: `${teacher.firstName} ${teacher.lastName}`,
-      },
-      attendance,
-    };
+    return { success: false, message: 'Person not recognized' };
   }
 
-  // ✅ NEW: Handle director attendance
-  private async handleDirectorAttendance(director: any, device: any, timestamp: Date) {
-    const schoolStartHour = 8;
-    const hour = timestamp.getHours();
-    const minute = timestamp.getMinutes();
-    const totalMinutes = hour * 60 + minute;
-    const schoolStartMinutes = schoolStartHour * 60;
+  private async processStudentAttendance(student: any, today: Date, now: Date) {
+    const isLate = now.getHours() > 8 || (now.getHours() === 8 && now.getMinutes() > 15);
+    const lateMinutes = isLate ? (now.getHours() - 8) * 60 + (now.getMinutes() - 0) : 0;
 
-    const isLate = totalMinutes > schoolStartMinutes;
-    const lateMinutes = isLate ? totalMinutes - schoolStartMinutes : 0;
+    await this.saveGeneralAttendance(student.schoolId, 'studentId', student.id, today, now, isLate, lateMinutes);
+    return { success: true, type: 'STUDENT' };
+  }
 
-    const attendanceLog = await this.prisma.attendanceLog.create({
-      data: {
-        schoolId: device.schoolId,
-        directorId: director.id,
-        deviceId: device.id,
-        date: timestamp,
-        checkInTime: timestamp,
-        status: isLate ? 'LATE' : 'PRESENT',
-        lateMinutes,
-      },
+  private async processTeacherAttendance(teacher: any, today: Date, now: Date) {
+    // Payroll uchun TeacherAttendance holatini tekshirish
+    const lastAt = await this.prisma.teacherAttendance.findUnique({
+      where: { teacherId_date: { teacherId: teacher.id, date: today } }
     });
 
-    return {
-      success: true,
-      type: 'DIRECTOR',
-      person: {
-        id: director.id,
-        name: `${director.firstName} ${director.lastName}`,
+    // TypeScript xatosi tuzatildi:
+    const checkType = !lastAt || !lastAt.checkInTime ? 'IN' : 'OUT';
+    
+    // 1. Payroll mantiqi
+    await this.payrollService.processAttendance(teacher.id, checkType, now);
+    
+    // 2. Umumiy davomat (Attendance modeli)
+    await this.saveGeneralAttendance(teacher.schoolId, 'teacherId', teacher.id, today, now);
+    
+    return { success: true, type: 'TEACHER', checkType };
+  }
+
+  private async processDirectorAttendance(director: any, today: Date, now: Date) {
+    await this.saveGeneralAttendance(director.schoolId, 'directorId', director.id, today, now);
+    return { success: true, type: 'DIRECTOR' };
+  }
+
+  // Umumiy Attendance jadvali uchun yordamchi metod
+  private async saveGeneralAttendance(
+    schoolId: string, 
+    personKey: string, 
+    personId: string, 
+    date: Date, 
+    timestamp: Date,
+    isLate: boolean = false,
+    lateMinutes: number = 0
+  ) {
+    return this.prisma.attendance.upsert({
+      where: { 
+        [`${personKey}_date`]: { [personKey]: personId, date } 
+      } as any,
+      update: { 
+        checkOutTime: timestamp 
       },
-      status: isLate ? 'LATE' : 'PRESENT',
-      lateMinutes,
-      attendanceLog,
-    };
+      create: {
+        schoolId,
+        [personKey]: personId,
+        date,
+        status: isLate ? AttendanceStatus.LATE : AttendanceStatus.PRESENT,
+        checkInTime: timestamp,
+        lateMinutes: isLate ? lateMinutes : 0,
+      } as any
+    });
   }
 }

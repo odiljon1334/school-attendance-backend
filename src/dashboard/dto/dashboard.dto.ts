@@ -1,29 +1,32 @@
-import { IsString, IsNotEmpty, IsOptional, IsDateString } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsInt, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class DashboardQueryDto {
   @IsString()
-  @IsNotEmpty()
   schoolId: string;
 
-  @IsDateString()
   @IsOptional()
+  @IsDateString()
   startDate?: string;
 
-  @IsDateString()
   @IsOptional()
+  @IsDateString()
   endDate?: string;
 }
 
 export class DistrictDashboardDto {
   @IsString()
-  @IsNotEmpty()
   districtId: string;
+}
 
-  @IsDateString()
+export class TrendsQueryDto {
   @IsOptional()
-  startDate?: string;
+  @IsString()
+  schoolId?: string;
 
-  @IsDateString()
   @IsOptional()
-  endDate?: string;
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  days?: number = 7;
 }

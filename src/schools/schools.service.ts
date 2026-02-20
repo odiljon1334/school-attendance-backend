@@ -1,7 +1,9 @@
+// src/schools/schools.service.ts - FIXED (Password hash + remove from response)
+
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateSchoolDto } from './dto/school.dto';
-import { UpdateSchoolDto } from './dto/school.dto';
+import { CreateSchoolDto, UpdateSchoolDto } from './dto/school.dto';
+import * as bcrypt from 'bcrypt'; // ← CRITICAL: Import bcrypt
 
 @Injectable()
 export class SchoolsService {
@@ -9,38 +11,69 @@ export class SchoolsService {
 
   async create(createSchoolDto: CreateSchoolDto) {
     // Check if code already exists
-    const existing = await this.prisma.school.findUnique({
+    const existingCode = await this.prisma.school.findUnique({
       where: { code: createSchoolDto.code },
     });
 
-    if (existing) {
+    if (existingCode) {
       throw new ConflictException(`School with code ${createSchoolDto.code} already exists`);
     }
 
-    return this.prisma.school.create({
-      data: createSchoolDto,
+    // Check username uniqueness
+    if (createSchoolDto.username) {
+      const existingUsername = await this.prisma.school.findUnique({
+        where: { username: createSchoolDto.username },
+      });
+
+      if (existingUsername) {
+        throw new ConflictException(`Username ${createSchoolDto.username} already exists`);
+      }
+    }
+
+    // ✅ CRITICAL: Hash password
+    const dataToCreate: any = { ...createSchoolDto };
+    if (createSchoolDto.password) {
+      dataToCreate.password = await bcrypt.hash(createSchoolDto.password, 10);
+    }
+
+    const school = await this.prisma.school.create({
+      data: dataToCreate,
       include: {
         district: true,
       },
     });
+
+    // ✅ CRITICAL: Remove password from response
+    const { password, ...schoolWithoutPassword } = school;
+    return schoolWithoutPassword;
   }
 
   async findAll(districtId?: string) {
     const where: any = {};
-    
+
     if (districtId) {
       where.districtId = districtId;
     }
 
     return this.prisma.school.findMany({
       where,
-      include: {
+      select: {
+        id: true,
+        districtId: true,
+        name: true,
+        code: true,
+        address: true,
+        phone: true,
+        email: true,
+        username: true,
+        // ❌ password: NOT included
+        createdAt: true,
+        updatedAt: true,
         district: true,
         _count: {
           select: {
             students: true,
             teachers: true,
-            directors: true,
             classes: true,
           },
         },
@@ -54,7 +87,18 @@ export class SchoolsService {
   async findOne(id: string) {
     const school = await this.prisma.school.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true,
+        districtId: true,
+        name: true,
+        code: true,
+        address: true,
+        phone: true,
+        email: true,
+        username: true,
+        // ❌ password: NOT included
+        createdAt: true,
+        updatedAt: true,
         district: true,
         classes: {
           include: {
@@ -71,12 +115,10 @@ export class SchoolsService {
           },
         },
         teachers: true,
-        directors: true,
         _count: {
           select: {
             students: true,
             teachers: true,
-            directors: true,
             classes: true,
           },
         },
@@ -111,13 +153,34 @@ export class SchoolsService {
       }
     }
 
-    return this.prisma.school.update({
+    // Check username uniqueness
+    if (updateSchoolDto.username && updateSchoolDto.username !== existing.username) {
+      const usernameExists = await this.prisma.school.findUnique({
+        where: { username: updateSchoolDto.username },
+      });
+
+      if (usernameExists) {
+        throw new ConflictException(`Username ${updateSchoolDto.username} already exists`);
+      }
+    }
+
+    // ✅ CRITICAL: Hash password if provided
+    const dataToUpdate: any = { ...updateSchoolDto };
+    if (updateSchoolDto.password) {
+      dataToUpdate.password = await bcrypt.hash(updateSchoolDto.password, 10);
+    }
+
+    const school = await this.prisma.school.update({
       where: { id },
-      data: updateSchoolDto,
+      data: dataToUpdate,
       include: {
         district: true,
       },
     });
+
+    // ✅ CRITICAL: Remove password from response
+    const { password, ...schoolWithoutPassword } = school;
+    return schoolWithoutPassword;
   }
 
   async remove(id: string) {
@@ -129,7 +192,6 @@ export class SchoolsService {
           select: {
             students: true,
             teachers: true,
-            directors: true,
             classes: true,
           },
         },
@@ -140,11 +202,8 @@ export class SchoolsService {
       throw new NotFoundException(`School with ID ${id} not found`);
     }
 
-    // Check if school has students, teachers, or directors
-    const totalUsers = 
-      school._count.students + 
-      school._count.teachers + 
-      school._count.directors;
+    // Check if school has students, teachers
+    const totalUsers = school._count.students + school._count.teachers;
 
     if (totalUsers > 0) {
       throw new ConflictException(
@@ -166,7 +225,6 @@ export class SchoolsService {
           select: {
             students: true,
             teachers: true,
-            directors: true,
             classes: true,
           },
         },
@@ -180,59 +238,58 @@ export class SchoolsService {
     // Get today's attendance
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
 
     const attendanceRecords = await this.prisma.attendance.findMany({
       where: {
         schoolId: id,
         date: {
           gte: today,
-          lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+          lt: tomorrow,
         },
       },
     });
 
-    const studentAttendance = attendanceRecords.filter(a => a.studentId);
-    const teacherAttendance = attendanceRecords.filter(a => a.teacherId);
-    const directorAttendance = attendanceRecords.filter(a => a.directorId);
+    const studentAttendance = attendanceRecords.filter((a) => a.studentId);
+    const teacherAttendance = attendanceRecords.filter((a) => a.teacherId);
 
     const studentPresent = studentAttendance.filter(
-      a => a.status === 'PRESENT' || a.status === 'LATE',
+      (a) => a.status === 'PRESENT' || a.status === 'LATE',
     ).length;
 
     const teacherPresent = teacherAttendance.filter(
-      a => a.status === 'PRESENT' || a.status === 'LATE',
-    ).length;
-
-    const directorPresent = directorAttendance.filter(
-      a => a.status === 'PRESENT' || a.status === 'LATE',
+      (a) => a.status === 'PRESENT' || a.status === 'LATE',
     ).length;
 
     return {
-      totalStudents: school._count.students,
-      totalTeachers: school._count.teachers,
-      totalDirectors: school._count.directors,
-      totalClasses: school._count.classes,
+      school: {
+        id: school.id,
+        name: school.name,
+        code: school.code,
+      },
+      counts: {
+        totalStudents: school._count.students,
+        totalTeachers: school._count.teachers,
+        totalClasses: school._count.classes,
+      },
       todayAttendance: {
         students: {
-          present: studentPresent,
           total: school._count.students,
-          rate: school._count.students > 0 
-            ? ((studentPresent / school._count.students) * 100).toFixed(1) 
-            : '0',
+          present: studentPresent,
+          absent: school._count.students - studentPresent,
+          rate:
+            school._count.students > 0
+              ? ((studentPresent / school._count.students) * 100).toFixed(1)
+              : '0',
         },
         teachers: {
-          present: teacherPresent,
           total: school._count.teachers,
-          rate: school._count.teachers > 0 
-            ? ((teacherPresent / school._count.teachers) * 100).toFixed(1) 
-            : '0',
-        },
-        directors: {
-          present: directorPresent,
-          total: school._count.directors,
-          rate: school._count.directors > 0 
-            ? ((directorPresent / school._count.directors) * 100).toFixed(1) 
-            : '0',
+          present: teacherPresent,
+          absent: school._count.teachers - teacherPresent,
+          rate:
+            school._count.teachers > 0
+              ? ((teacherPresent / school._count.teachers) * 100).toFixed(1)
+              : '0',
         },
       },
     };

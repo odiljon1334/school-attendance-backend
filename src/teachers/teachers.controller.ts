@@ -6,54 +6,108 @@ import {
   Patch,
   Param,
   Delete,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
-  Query,
-  Request,
 } from '@nestjs/common';
 import { TeachersService } from './teachers.service';
+import { CreateTeacherDto, UpdateTeacherDto } from './dto/teacher.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@prisma/client';
-import { CreateTeacherDto, UpdateTeacherDto } from './dto/teacher.dto';
 
 @Controller('teachers')
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class TeachersController {
   constructor(private readonly teachersService: TeachersService) {}
 
+  // ==========================================
+  // ✅ CREATE TEACHER
+  // ==========================================
   @Post()
-  @Roles(
-    UserRole.SUPER_ADMIN,
-    UserRole.DISTRICT_ADMIN,
-    UserRole.SCHOOL_ADMIN,
-    UserRole.DIRECTOR,
-  )
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.SCHOOL_ADMIN)
   @HttpCode(HttpStatus.CREATED)
   create(@Body() createTeacherDto: CreateTeacherDto) {
     return this.teachersService.create(createTeacherDto);
   }
 
+  // ==========================================
+  // ✅ GET ALL TEACHERS (with type filter)
+  // ==========================================
   @Get()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.DISTRICT_ADMIN,
+    UserRole.SCHOOL_ADMIN,
+    UserRole.DIRECTOR,
+    UserRole.TEACHER,
+  )
+  findAll(
+    @Query('schoolId') schoolId?: string,
+    @Query('type') type?: 'TEACHER' | 'DIRECTOR',
+  ) {
+    return this.teachersService.findAll(schoolId, type);
+  }
+
+  // ==========================================
+  // ✅ GET DIRECTORS ONLY
+  // ==========================================
+  @Get('directors')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.DISTRICT_ADMIN,
+    UserRole.SCHOOL_ADMIN,
+  )
+  findDirectors(@Query('schoolId') schoolId?: string) {
+    return this.teachersService.findDirectors(schoolId);
+  }
+
+  // ==========================================
+  // ✅ GET TEACHERS ONLY
+  // ==========================================
+  @Get('teachers')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(
     UserRole.SUPER_ADMIN,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,
   )
-  findAll(@Query('schoolId') schoolId?: string) {
-    return this.teachersService.findAll(schoolId);
+  findTeachers(@Query('schoolId') schoolId?: string) {
+    return this.teachersService.findTeachers(schoolId);
   }
 
-  @Get('profile')
-  @Roles(UserRole.TEACHER)
-  getProfile(@Request() req: any) {
-    return this.teachersService.getProfile(req.user.id);
+  // ==========================================
+  // ✅ SET AS DIRECTOR (SuperAdmin only)
+  // ==========================================
+  @Patch(':id/set-director')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  setAsDirector(@Param('id') id: string) {
+    return this.teachersService.setAsDirector(id);
   }
 
+  // ==========================================
+  // ✅ SET AS TEACHER (SuperAdmin only)
+  // ==========================================
+  @Patch(':id/set-teacher')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  setAsTeacher(@Param('id') id: string) {
+    return this.teachersService.setAsTeacher(id);
+  }
+
+  // ==========================================
+  // ✅ GET ONE TEACHER
+  // ==========================================
   @Get(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(
     UserRole.SUPER_ADMIN,
     UserRole.DISTRICT_ADMIN,
@@ -65,7 +119,11 @@ export class TeachersController {
     return this.teachersService.findOne(id);
   }
 
-  @Get(':id/attendance')
+  // ==========================================
+  // ✅ GET ATTENDANCE STATS
+  // ==========================================
+  @Get(':id/attendance-stats')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(
     UserRole.SUPER_ADMIN,
     UserRole.DISTRICT_ADMIN,
@@ -85,23 +143,53 @@ export class TeachersController {
     );
   }
 
-  @Patch(':id')
+  // ==========================================
+  // ✅ GET PROFILE BY PHONE
+  // ==========================================
+  @Get('profile/phone/:phone')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.DISTRICT_ADMIN,
+    UserRole.SCHOOL_ADMIN,
+    UserRole.DIRECTOR,
+    UserRole.TEACHER,
+  )
+  getProfileByPhone(@Param('phone') phone: string) {
+    return this.teachersService.getProfileByPhone(phone);
+  }
+
+  // ==========================================
+  // ✅ GET PROFILE BY FACE ID
+  // ==========================================
+  @Get('profile/face/:facePersonId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(
     UserRole.SUPER_ADMIN,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,
   )
+  getProfileByFaceId(@Param('facePersonId') facePersonId: string) {
+    return this.teachersService.getProfileByFaceId(facePersonId);
+  }
+
+  // ==========================================
+  // ✅ UPDATE TEACHER
+  // ==========================================
+  @Patch(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR)
   update(@Param('id') id: string, @Body() updateTeacherDto: UpdateTeacherDto) {
     return this.teachersService.update(id, updateTeacherDto);
   }
 
+  // ==========================================
+  // ✅ DELETE TEACHER
+  // ==========================================
   @Delete(':id')
-  @Roles(
-    UserRole.SUPER_ADMIN,
-    UserRole.DISTRICT_ADMIN,
-    UserRole.SCHOOL_ADMIN,
-  )
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.SCHOOL_ADMIN)
   @HttpCode(HttpStatus.OK)
   remove(@Param('id') id: string) {
     return this.teachersService.remove(id);

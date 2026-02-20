@@ -18,21 +18,29 @@ export class CreatePaymentDto {
   @Min(0)
   amount: number;
 
+  @IsString()
+  @IsNotEmpty()
+  month: string; // Masalan: "October" yoki "2024-10"
+
+  @IsString()
+  @IsNotEmpty()
+  academicYear: string; // Masalan: "2024-2025"
+
   @IsDateString()
   @IsOptional()
-  paymentDate?: string;
+  dueDate?: string; // Servisda default qiymat beriladi agar kelmasa
+
+  @IsDateString()
+  @IsOptional()
+  paymentDate?: string; // Sxemadagi paidDate uchun
 
   @IsEnum(PaymentStatus)
   @IsOptional()
   status?: PaymentStatus;
 
   @IsString()
-  @IsNotEmpty()
-  type: string; // tuition, transport, lunch, etc.
-
-  @IsString()
   @IsOptional()
-  description?: string;
+  notes?: string;
 }
 
 export class UpdatePaymentDto {
@@ -45,17 +53,25 @@ export class UpdatePaymentDto {
   @IsOptional()
   status?: PaymentStatus;
 
+  @IsString()
+  @IsOptional()
+  month?: string; // Oyni o'zgartirish imkoniyati qo'shildi
+
+  @IsString()
+  @IsOptional()
+  academicYear?: string; // O'quv yilini o'zgartirish imkoniyati qo'shildi
+
   @IsDateString()
   @IsOptional()
   paymentDate?: string;
 
-  @IsString()
+  @IsDateString()
   @IsOptional()
-  type?: string;
+  dueDate?: string;
 
   @IsString()
   @IsOptional()
-  description?: string;
+  notes?: string;
 }
 
 export class PaymentReportDto {
@@ -64,12 +80,12 @@ export class PaymentReportDto {
   schoolId: string;
 
   @IsDateString()
-  @IsOptional()
-  startDate?: string;
+  @IsNotEmpty() // Hisobot uchun odatda oraliq shart
+  startDate: string;
 
   @IsDateString()
-  @IsOptional()
-  endDate?: string;
+  @IsNotEmpty()
+  endDate: string;
 
   @IsString()
   @IsOptional()
@@ -82,8 +98,4 @@ export class PaymentReportDto {
   @IsEnum(PaymentStatus)
   @IsOptional()
   status?: PaymentStatus;
-
-  @IsString()
-  @IsOptional()
-  type?: string;
 }

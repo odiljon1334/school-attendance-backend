@@ -12,13 +12,15 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
 import { SmsPaymentController } from './sms-payment.controller';
+import { RedisModule } from 'src/redis/redis.module';
 
 @Module({
   imports: [
     PrismaModule,
     AuthModule,
     ConfigModule,
-    ScheduleModule.forRoot(),  // ← QO'SHILDI
+    RedisModule,
+    ScheduleModule.forRoot(),
   ],
   controllers: [
     NotificationsController, 
@@ -28,13 +30,13 @@ import { SmsPaymentController } from './sms-payment.controller';
   providers: [
     NotificationsService,
     SmsService,
-    SmsPaymentService,  // ← QO'SHILDI
+    SmsPaymentService,
     TelegramService,
   ],
   exports: [
     NotificationsService,
     SmsService,
-    SmsPaymentService,  // ← QO'SHILDI
+    SmsPaymentService,
     TelegramService,
   ],
 })

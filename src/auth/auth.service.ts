@@ -24,7 +24,7 @@ export class AuthService {
 
     // Check if email exists (if provided)
     if (registerDto.email) {
-      const existingEmail = await this.prisma.user.findFirst({ // FIXED: Use findFirst
+      const existingEmail = await this.prisma.user.findFirst({
         where: { email: registerDto.email },
       });
 
@@ -41,7 +41,7 @@ export class AuthService {
       data: {
         username: registerDto.username,
         password: hashedPassword,
-        email: registerDto.email || undefined, // Make optional
+        email: registerDto.email || undefined,
         role: registerDto.role || 'STUDENT',
         status: 'ACTIVE',
       },
@@ -104,6 +104,69 @@ export class AuthService {
     };
   }
 
+  // ==========================================
+  // ✅ NEW: SCHOOL LOGIN
+  // ==========================================
+  async loginSchool(loginDto: LoginDto) {
+    // Find school by username
+    const school = await this.prisma.school.findUnique({
+      where: { username: loginDto.username },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        username: true,
+        password: true,
+        address: true,
+        phone: true,
+        email: true,
+        districtId: true,
+      },
+    });
+
+    if (!school) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Check if school has password
+    if (!school.password) {
+      throw new UnauthorizedException('School login not configured');
+    }
+
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(loginDto.password, school.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Generate token for School
+    const token = this.generateSchoolToken(school);
+
+    // Remove password from response
+    const { password, ...schoolWithoutPassword } = school;
+
+    return {
+      school: schoolWithoutPassword,
+      access_token: token,
+      type: 'SCHOOL',
+    };
+  }
+
+  // ==========================================
+  // ✅ GENERATE SCHOOL TOKEN
+  // ==========================================
+  private generateSchoolToken(school: any): string {
+    const payload = {
+      sub: school.id,
+      schoolId: school.id,
+      schoolName: school.name,
+      schoolCode: school.code,
+      type: 'SCHOOL',
+    };
+
+    return this.jwtService.sign(payload);
+  }
+
   async validateUser(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -115,7 +178,6 @@ export class AuthService {
         status: true,
         student: true,
         teacher: true,
-        director: true,
         parent: true,
       },
     });
@@ -125,6 +187,30 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  // ==========================================
+  // ✅ NEW: VALIDATE SCHOOL
+  // ==========================================
+  async validateSchool(schoolId: string) {
+    const school = await this.prisma.school.findUnique({
+      where: { id: schoolId },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        username: true,
+        address: true,
+        phone: true,
+        email: true,
+      },
+    });
+
+    if (!school) {
+      throw new UnauthorizedException('School not found');
+    }
+
+    return school;
   }
 
   private generateToken(user: any): string {
@@ -144,6 +230,19 @@ export class AuthService {
 
     return {
       access_token: token,
+    };
+  }
+
+  // ==========================================
+  // ✅ NEW: REFRESH SCHOOL TOKEN
+  // ==========================================
+  async refreshSchoolToken(schoolId: string) {
+    const school = await this.validateSchool(schoolId);
+    const token = this.generateSchoolToken(school);
+
+    return {
+      access_token: token,
+      type: 'SCHOOL',
     };
   }
 
@@ -174,9 +273,39 @@ export class AuthService {
     return { message: 'Password changed successfully' };
   }
 
+  // ==========================================
+  // ✅ NEW: CHANGE SCHOOL PASSWORD
+  // ==========================================
+  async changeSchoolPassword(schoolId: string, oldPassword: string, newPassword: string) {
+    const school = await this.prisma.school.findUnique({
+      where: { id: schoolId },
+    });
+
+    if (!school || !school.password) {
+      throw new UnauthorizedException('School not found');
+    }
+
+    // Verify old password
+    const isValidPassword = await bcrypt.compare(oldPassword, school.password);
+    if (!isValidPassword) {
+      throw new UnauthorizedException('Old password is incorrect');
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password
+    await this.prisma.school.update({
+      where: { id: schoolId },
+      data: { password: hashedPassword },
+    });
+
+    return { message: 'School password changed successfully' };
+  }
+
   async resetPassword(email: string) {
     // Find user by email
-    const user = await this.prisma.user.findFirst({ // FIXED: Use findFirst
+    const user = await this.prisma.user.findFirst({
       where: { email },
     });
 

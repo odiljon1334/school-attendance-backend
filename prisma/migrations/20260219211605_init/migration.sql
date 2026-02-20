@@ -13,6 +13,9 @@ CREATE TYPE "AttendanceStatus" AS ENUM ('PRESENT', 'LATE', 'ABSENT', 'LEAVE', 'H
 -- CreateEnum
 CREATE TYPE "PaymentStatus" AS ENUM ('PENDING', 'PAID', 'OVERDUE');
 
+-- CreateEnum
+CREATE TYPE "TeacherType" AS ENUM ('TEACHER', 'DIRECTOR');
+
 -- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
@@ -48,6 +51,8 @@ CREATE TABLE "School" (
     "address" TEXT NOT NULL,
     "phone" TEXT,
     "email" TEXT,
+    "username" TEXT,
+    "password" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -86,6 +91,10 @@ CREATE TABLE "Student" (
     "photo" TEXT,
     "facePersonId" TEXT,
     "enrollNumber" TEXT,
+    "isSmsEnabled" BOOLEAN NOT NULL DEFAULT true,
+    "smsPaidUntil" TIMESTAMP(3),
+    "smsPaymentType" TEXT,
+    "smsReminderSent" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -95,12 +104,13 @@ CREATE TABLE "Student" (
 -- CreateTable
 CREATE TABLE "Teacher" (
     "id" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
-    "schoolId" TEXT NOT NULL,
-    "firstName" TEXT NOT NULL,
-    "lastName" TEXT NOT NULL,
-    "phone" TEXT NOT NULL,
-    "subjects" TEXT[],
+    "userId" TEXT,
+    "type" "TeacherType" NOT NULL DEFAULT 'TEACHER',
+    "schoolId" TEXT,
+    "firstName" TEXT,
+    "lastName" TEXT,
+    "phone" TEXT,
+    "subjects" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "telegramId" TEXT,
     "telegramUsername" TEXT,
     "telegramChatId" TEXT,
@@ -193,27 +203,6 @@ CREATE TABLE "teacher_payrolls" (
 );
 
 -- CreateTable
-CREATE TABLE "Director" (
-    "id" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
-    "schoolId" TEXT NOT NULL,
-    "firstName" TEXT NOT NULL,
-    "lastName" TEXT NOT NULL,
-    "phone" TEXT NOT NULL,
-    "telegramId" TEXT,
-    "telegramUsername" TEXT,
-    "telegramChatId" TEXT,
-    "isTelegramActive" BOOLEAN NOT NULL DEFAULT false,
-    "photo" TEXT,
-    "facePersonId" TEXT,
-    "enrollNumber" TEXT,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Director_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "Parent" (
     "id" TEXT NOT NULL,
     "userId" TEXT,
@@ -238,12 +227,12 @@ CREATE TABLE "Attendance" (
     "schoolId" TEXT NOT NULL,
     "studentId" TEXT,
     "teacherId" TEXT,
-    "directorId" TEXT,
     "date" TIMESTAMP(3) NOT NULL,
     "status" "AttendanceStatus" NOT NULL,
     "checkInTime" TIMESTAMP(3),
     "checkOutTime" TIMESTAMP(3),
     "lateMinutes" INTEGER,
+    "lateCount" INTEGER NOT NULL DEFAULT 0,
     "deviceId" TEXT,
     "notes" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -312,6 +301,23 @@ CREATE TABLE "SmsLog" (
     CONSTRAINT "SmsLog_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "HikvisionDevice" (
+    "id" TEXT NOT NULL,
+    "schoolId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "deviceId" TEXT NOT NULL,
+    "ipAddress" TEXT NOT NULL,
+    "port" INTEGER NOT NULL DEFAULT 80,
+    "username" TEXT NOT NULL,
+    "password" TEXT NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "HikvisionDevice_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
 
@@ -320,6 +326,12 @@ CREATE UNIQUE INDEX "District_code_key" ON "District"("code");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "School_code_key" ON "School"("code");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "School_username_key" ON "School"("username");
+
+-- CreateIndex
+CREATE INDEX "School_username_idx" ON "School"("username");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Class_schoolId_grade_section_academicYear_key" ON "Class"("schoolId", "grade", "section", "academicYear");
@@ -343,19 +355,28 @@ CREATE INDEX "Student_schoolId_idx" ON "Student"("schoolId");
 CREATE INDEX "Student_classId_idx" ON "Student"("classId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Teacher_userId_key" ON "Teacher"("userId");
+CREATE INDEX "Student_isSmsEnabled_idx" ON "Student"("isSmsEnabled");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Teacher_telegramId_key" ON "Teacher"("telegramId");
+CREATE INDEX "Student_smsPaidUntil_idx" ON "Student"("smsPaidUntil");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Teacher_userId_key" ON "Teacher"("userId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Teacher_facePersonId_key" ON "Teacher"("facePersonId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Teacher_enrollNumber_key" ON "Teacher"("enrollNumber");
+CREATE INDEX "Teacher_schoolId_idx" ON "Teacher"("schoolId");
 
 -- CreateIndex
-CREATE INDEX "Teacher_schoolId_idx" ON "Teacher"("schoolId");
+CREATE INDEX "Teacher_facePersonId_idx" ON "Teacher"("facePersonId");
+
+-- CreateIndex
+CREATE INDEX "Teacher_type_idx" ON "Teacher"("type");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Teacher_telegramId_key" ON "Teacher"("telegramId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "TeacherClass_teacherId_classId_key" ON "TeacherClass"("teacherId", "classId");
@@ -376,21 +397,6 @@ CREATE INDEX "teacher_payrolls_teacherId_month_idx" ON "teacher_payrolls"("teach
 CREATE UNIQUE INDEX "teacher_payrolls_teacherId_month_key" ON "teacher_payrolls"("teacherId", "month");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Director_userId_key" ON "Director"("userId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Director_telegramId_key" ON "Director"("telegramId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Director_facePersonId_key" ON "Director"("facePersonId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Director_enrollNumber_key" ON "Director"("enrollNumber");
-
--- CreateIndex
-CREATE INDEX "Director_schoolId_idx" ON "Director"("schoolId");
-
--- CreateIndex
 CREATE UNIQUE INDEX "Parent_userId_key" ON "Parent"("userId");
 
 -- CreateIndex
@@ -407,9 +413,6 @@ CREATE UNIQUE INDEX "Attendance_studentId_date_key" ON "Attendance"("studentId",
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Attendance_teacherId_date_key" ON "Attendance"("teacherId", "date");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Attendance_directorId_date_key" ON "Attendance"("directorId", "date");
 
 -- CreateIndex
 CREATE INDEX "Payment_studentId_idx" ON "Payment"("studentId");
@@ -438,6 +441,12 @@ CREATE INDEX "SmsLog_recipient_idx" ON "SmsLog"("recipient");
 -- CreateIndex
 CREATE INDEX "SmsLog_sentAt_idx" ON "SmsLog"("sentAt");
 
+-- CreateIndex
+CREATE UNIQUE INDEX "HikvisionDevice_deviceId_key" ON "HikvisionDevice"("deviceId");
+
+-- CreateIndex
+CREATE INDEX "HikvisionDevice_schoolId_idx" ON "HikvisionDevice"("schoolId");
+
 -- AddForeignKey
 ALTER TABLE "School" ADD CONSTRAINT "School_districtId_fkey" FOREIGN KEY ("districtId") REFERENCES "District"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
@@ -454,7 +463,7 @@ ALTER TABLE "Student" ADD CONSTRAINT "Student_schoolId_fkey" FOREIGN KEY ("schoo
 ALTER TABLE "Student" ADD CONSTRAINT "Student_classId_fkey" FOREIGN KEY ("classId") REFERENCES "Class"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Teacher" ADD CONSTRAINT "Teacher_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Teacher" ADD CONSTRAINT "Teacher_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Teacher" ADD CONSTRAINT "Teacher_schoolId_fkey" FOREIGN KEY ("schoolId") REFERENCES "School"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -475,12 +484,6 @@ ALTER TABLE "teacher_attendances" ADD CONSTRAINT "teacher_attendances_teacherId_
 ALTER TABLE "teacher_payrolls" ADD CONSTRAINT "teacher_payrolls_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Director" ADD CONSTRAINT "Director_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Director" ADD CONSTRAINT "Director_schoolId_fkey" FOREIGN KEY ("schoolId") REFERENCES "School"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "Parent" ADD CONSTRAINT "Parent_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -496,7 +499,7 @@ ALTER TABLE "Attendance" ADD CONSTRAINT "Attendance_studentId_fkey" FOREIGN KEY 
 ALTER TABLE "Attendance" ADD CONSTRAINT "Attendance_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Attendance" ADD CONSTRAINT "Attendance_directorId_fkey" FOREIGN KEY ("directorId") REFERENCES "Director"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "Payment" ADD CONSTRAINT "Payment_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Payment" ADD CONSTRAINT "Payment_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "HikvisionDevice" ADD CONSTRAINT "HikvisionDevice_schoolId_fkey" FOREIGN KEY ("schoolId") REFERENCES "School"("id") ON DELETE CASCADE ON UPDATE CASCADE;

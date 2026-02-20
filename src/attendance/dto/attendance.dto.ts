@@ -24,10 +24,6 @@ export class CheckInDto {
 
   @IsString()
   @IsOptional()
-  directorId?: string;
-
-  @IsString()
-  @IsOptional()
   deviceId?: string;
 
   @IsDateString()
@@ -58,9 +54,6 @@ export class CreateAttendanceDto {
   @IsOptional()
   teacherId?: string;
 
-  @IsString()
-  @IsOptional()
-  directorId?: string;
 
   @IsEnum(AttendanceStatus)
   @IsNotEmpty()

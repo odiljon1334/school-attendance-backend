@@ -1,13 +1,20 @@
-import { IsString, IsNotEmpty, IsOptional, IsEmail } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsEmail,
+  IsUUID,
+  MinLength,
+} from 'class-validator';
 
 export class CreateSchoolDto {
   @IsString()
   @IsNotEmpty()
-  districtId: string;
+  name: string;
 
   @IsString()
   @IsNotEmpty()
-  name: string;
+  code: string;
 
   @IsString()
   @IsNotEmpty()
@@ -21,19 +28,33 @@ export class CreateSchoolDto {
   @IsOptional()
   email?: string;
 
+  // ✅ NEW: Username for School login
   @IsString()
-  @IsNotEmpty()
-  code: string;
+  @IsOptional()
+  username?: string;
+
+  // ✅ NEW: Password for School login
+  @IsString()
+  @IsOptional()
+  @MinLength(6, { message: 'Password must be at least 6 characters' })
+  password?: string;
+
+  @IsUUID()
+  @IsOptional()
+  districtId?: string;
 }
 
+// ==========================================
+// ✅ UPDATE SCHOOL DTO
+// ==========================================
 export class UpdateSchoolDto {
   @IsString()
   @IsOptional()
-  districtId?: string;
+  name?: string;
 
   @IsString()
   @IsOptional()
-  name?: string;
+  code?: string;
 
   @IsString()
   @IsOptional()
@@ -47,19 +68,18 @@ export class UpdateSchoolDto {
   @IsOptional()
   email?: string;
 
+  // ✅ NEW: Username update
   @IsString()
   @IsOptional()
-  code?: string;
-}
+  username?: string;
 
-export class SchoolResponseDto {
-  id: string;
-  districtId: string;
-  name: string;
-  address: string;
-  phone?: string;
-  email?: string;
-  code: string;
-  createdAt: Date;
-  updatedAt: Date;
+  // ✅ NEW: Password update
+  @IsString()
+  @IsOptional()
+  @MinLength(6, { message: 'Password must be at least 6 characters' })
+  password?: string;
+
+  @IsUUID()
+  @IsOptional()
+  districtId?: string;
 }

@@ -1,4 +1,4 @@
-// src/attendance/attendance.controller.ts - WITH HIKVISION WEBHOOK
+// src/attendance/attendance.controller.ts - WITH NEW ENDPOINTS
 
 import {
   Controller,
@@ -28,7 +28,7 @@ export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
 
   // ==========================================
-  // ✅ NEW: HIKVISION WEBHOOK (NO AUTH)
+  // ✅ HIKVISION WEBHOOK (NO AUTH)
   // ==========================================
   @Post('turnstile/event')
   @HttpCode(HttpStatus.OK)
@@ -36,7 +36,6 @@ export class AttendanceController {
     try {
       this.logger.log('Turnstile event received:', JSON.stringify(body));
 
-      // Parse Hikvision event
       const event = this.parseHikvisionEvent(body);
 
       if (!event) {
@@ -44,7 +43,6 @@ export class AttendanceController {
         return { success: false, message: 'Invalid event format' };
       }
 
-      // Process attendance with photo
       await this.attendanceService.handleTurnstileEvent(event);
 
       return { success: true, message: 'Event processed' };
@@ -54,11 +52,8 @@ export class AttendanceController {
     }
   }
 
-  // ✅ Parse Hikvision event format
   private parseHikvisionEvent(body: any) {
     try {
-      // Hikvision sends different formats, handle both:
-      
       // Format 1: Standard Hikvision
       if (body.PersonID || body.personId) {
         return {
@@ -88,14 +83,16 @@ export class AttendanceController {
     }
   }
 
-  // ✅ NEW: TEST ENDPOINT (for development)
   @Post('turnstile/test')
   @HttpCode(HttpStatus.OK)
-  async testTurnstileEvent(@Body() body: {
-    facePersonId: string;
-    deviceId?: string;
-    photoBase64?: string;
-  }) {
+  async testTurnstileEvent(
+    @Body()
+    body: {
+      facePersonId: string;
+      deviceId?: string;
+      photoBase64?: string;
+    },
+  ) {
     this.logger.log('Test event received');
 
     await this.attendanceService.handleTurnstileEvent({
@@ -110,17 +107,48 @@ export class AttendanceController {
   }
 
   // ==========================================
-  // EXISTING ENDPOINTS (WITH AUTH)
+  // ✅ NEW: TODAY STATS (FAST)
   // ==========================================
-  
-  @Post()
+  @Get('stats/today/:schoolId')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(
     UserRole.SUPER_ADMIN,
+    UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,
     UserRole.TEACHER,
   )
+  getTodayStats(@Param('schoolId') schoolId: string) {
+    return this.attendanceService.getTodayStats(schoolId);
+  }
+
+  // ==========================================
+  // ✅ NEW: TOP STUDENTS (LEADERBOARD)
+  // ==========================================
+  @Get('top-students/:schoolId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.DISTRICT_ADMIN,
+    UserRole.SCHOOL_ADMIN,
+    UserRole.DIRECTOR,
+    UserRole.TEACHER,
+  )
+  getTopStudents(
+    @Param('schoolId') schoolId: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedLimit = limit ? parseInt(limit, 10) : 10;
+    return this.attendanceService.getTopStudents(schoolId, parsedLimit);
+  }
+
+  // ==========================================
+  // EXISTING ENDPOINTS (WITH AUTH)
+  // ==========================================
+
+  @Post()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR, UserRole.TEACHER)
   @HttpCode(HttpStatus.CREATED)
   create(@Body() createAttendanceDto: CreateAttendanceDto) {
     return this.attendanceService.create(createAttendanceDto);
@@ -154,10 +182,7 @@ export class AttendanceController {
     UserRole.DIRECTOR,
     UserRole.TEACHER,
   )
-  getTodayAttendance(
-    @Param('schoolId') schoolId: string,
-    @Query('classId') classId?: string,
-  ) {
+  getTodayAttendance(@Param('schoolId') schoolId: string, @Query('classId') classId?: string) {
     return this.attendanceService.getTodayAttendance(schoolId, classId);
   }
 
@@ -176,16 +201,8 @@ export class AttendanceController {
 
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(
-    UserRole.SUPER_ADMIN,
-    UserRole.SCHOOL_ADMIN,
-    UserRole.DIRECTOR,
-    UserRole.TEACHER,
-  )
-  update(
-    @Param('id') id: string,
-    @Body() updateAttendanceDto: UpdateAttendanceDto,
-  ) {
+  @Roles(UserRole.SUPER_ADMIN, UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR, UserRole.TEACHER)
+  update(@Param('id') id: string, @Body() updateAttendanceDto: UpdateAttendanceDto) {
     return this.attendanceService.update(id, updateAttendanceDto);
   }
 

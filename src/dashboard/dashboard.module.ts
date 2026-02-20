@@ -3,9 +3,10 @@ import { DashboardService } from './dashboard.service';
 import { DashboardController } from './dashboard.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
+import { RedisModule } from 'src/redis/redis.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule],
+  imports: [PrismaModule, AuthModule, RedisModule],
   controllers: [DashboardController],
   providers: [DashboardService],
   exports: [DashboardService],

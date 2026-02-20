@@ -1,7 +1,8 @@
-// src/notifications/telegram.service.ts - ПОЛНОСТЬЮ НА РУССКОМ
+// src/notifications/telegram.service.ts - WITH REDIS SESSION
 
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import { Telegraf, Context, Markup } from 'telegraf';
 import { ConfigService } from '@nestjs/config';
 
@@ -12,6 +13,7 @@ export class TelegramService {
 
   constructor(
     private prisma: PrismaService,
+    private redis: RedisService,  // ← REDIS QO'SHILDI
     private configService: ConfigService,
   ) {
     const token = this.configService.get('TELEGRAM_BOT_TOKEN');
@@ -194,25 +196,29 @@ export class TelegramService {
   }
 
   // ==========================================
-  // SESSION MANAGEMENT
+  // ✅ SESSION MANAGEMENT (REDIS BILAN!)
   // ==========================================
   private async createSession(chatId: string, telegramId: string, state: string) {
-    await this.prisma.telegramSession.upsert({
-      where: { chatId },
-      create: { chatId, telegramId, state },
-      update: { telegramId, state, updatedAt: new Date() },
-    });
+    await this.redis.setTelegramSession(
+      chatId,
+      { telegramId, state, createdAt: new Date().toISOString() },
+      3600, // 1 soat
+    );
+    this.logger.log(`Session created: ${chatId} (Redis)`);
   }
 
   private async getSession(chatId: string) {
-    return this.prisma.telegramSession.findUnique({ where: { chatId } });
+    return await this.redis.getTelegramSession(chatId);
   }
 
   private async updateSession(chatId: string, state: string, data?: any) {
-    await this.prisma.telegramSession.update({
-      where: { chatId },
-      data: { state, data, updatedAt: new Date() },
-    });
+    const session = await this.getSession(chatId);
+    await this.redis.setTelegramSession(
+      chatId,
+      { ...session, state, data, updatedAt: new Date().toISOString() },
+      3600,
+    );
+    this.logger.log(`Session updated: ${chatId} → ${state}`);
   }
 
   // ==========================================
@@ -305,6 +311,12 @@ export class TelegramService {
     }
 
     try {
+      // Avval eski telegramId ni tozalash
+      await this.prisma.parent.updateMany({
+        where: { telegramId },
+        data: { telegramId: null, isTelegramActive: false },
+      });
+
       const parent = await this.prisma.parent.findFirst({
         where: { phone },
         include: { student: { include: { class: true } } },
@@ -540,7 +552,7 @@ export class TelegramService {
   }
 
   // ==========================================
-  // TEACHER REGISTRATION
+  // TEACHER & DIRECTOR (same as before, qisqartiraman)
   // ==========================================
   private async handleTeacherPhone(ctx: Context, phone: string, chatId: string, telegramId: string) {
     if (!phone.match(/^\+998\d{9}$/)) {
@@ -549,6 +561,11 @@ export class TelegramService {
     }
 
     try {
+      await this.prisma.teacher.updateMany({
+        where: { telegramId },
+        data: { telegramId: null, isTelegramActive: false },
+      });
+
       const teacher = await this.prisma.teacher.findFirst({
         where: { phone },
         include: {
@@ -593,27 +610,34 @@ export class TelegramService {
     }
   }
 
-  // ==========================================
-  // DIRECTOR REGISTRATION
-  // ==========================================
   private async handleDirectorPhone(ctx: Context, phone: string, chatId: string, telegramId: string) {
     if (!phone.match(/^\+998\d{9}$/)) {
       await ctx.reply('❌ Неправильный формат.\nФормат: +998901234567');
       return;
     }
-
+  
     try {
-      const director = await this.prisma.director.findFirst({
-        where: { phone },
+      // Avval eski telegramId ni tozalash (teacher jadvalida)
+      await this.prisma.teacher.updateMany({
+        where: { telegramId },
+        data: { telegramId: null, isTelegramActive: false, telegramChatId: null, telegramUsername: null },
+      });
+  
+      // ✅ Director = Teacher(type=DIRECTOR)
+      const director = await this.prisma.teacher.findFirst({
+        where: { phone, type: 'DIRECTOR' },
         include: { school: true },
       });
-
+  
       if (!director) {
-        await ctx.reply('❌ Номер телефона не найден в базе данных.');
+        await ctx.reply(
+          '❌ Директор с таким номером не найден.\n\n' +
+          'Проверьте номер или обратитесь к администратору (SuperAdmin).',
+        );
         return;
       }
-
-      await this.prisma.director.update({
+  
+      await this.prisma.teacher.update({
         where: { id: director.id },
         data: {
           telegramId,
@@ -622,24 +646,24 @@ export class TelegramService {
           isTelegramActive: true,
         },
       });
-
-      await this.updateSession(chatId, 'VERIFIED_DIRECTOR', { directorId: director.id });
-
+  
+      await this.updateSession(chatId, 'VERIFIED_DIRECTOR', { teacherId: director.id });
+  
       await ctx.reply(
-        `✅ Регистрация прошла успешно!\n\n` +
-        `👔 Имя: ${director.firstName} ${director.lastName}\n` +
-        `🏫 Школа: ${director.school.name}\n\n` +
-        `Помощь: /menu`,
+        `✅ Регистрация директора прошла успешно!\n\n` +
+        `👔 Имя: ${director.firstName ?? ''} ${director.lastName ?? ''}\n` +
+        `🏫 Школа: ${director.school?.name ?? '-'}\n\n` +
+        `Команды: /menu`,
       );
+  
+      await this.showDirectorMenu(ctx);
     } catch (error) {
       this.logger.error('Director registration error:', error);
       await ctx.reply('❌ Произошла ошибка.');
     }
   }
-
-  // ==========================================
-  // TEACHER REPORTS
-  // ==========================================
+  
+  // Teacher reports (same as before - keeping original)
   private async getTeacherTodayReport(telegramId: string): Promise<string> {
     try {
       const teacher = await this.prisma.teacher.findFirst({
@@ -863,7 +887,6 @@ export class TelegramService {
       throw error;
     }
   }
-
 
   async sendPhotoFromBase64(chatId: string, photoBase64: string, caption: string) {
     if (!this.bot) {
