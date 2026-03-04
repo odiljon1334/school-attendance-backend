@@ -1,5 +1,3 @@
-// src/redis/redis.service.ts - OPTIMAL VERSION
-
 import { Injectable, OnModuleDestroy, OnModuleInit, Logger } from '@nestjs/common';
 import Redis, { Redis as RedisClient } from 'ioredis';
 
@@ -148,6 +146,17 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     const key = `sms:limit:${phone}`;
     const count = await this.get(key);
     return count ? parseInt(count, 10) : 0;
+  }
+
+  // redis.service.ts ga qo'shing:
+  async isFirstSms(phone: string): Promise<boolean> {
+    const key = `sms:first:${phone}`;
+    const exists = await this.client.exists(key);
+    if (!exists) {
+      await this.client.set(key, '1'); // TTL yo'q — permanent
+      return true; // birinchi SMS
+    }
+    return false;
   }
 
   // ==========================================

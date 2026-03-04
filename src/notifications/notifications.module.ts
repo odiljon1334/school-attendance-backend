@@ -1,18 +1,19 @@
 // src/notifications/notifications.module.ts - UPDATED
 
 import { Module } from '@nestjs/common';
-import { ScheduleModule } from '@nestjs/schedule';  // ← QO'SHILDI
+import { ScheduleModule } from '@nestjs/schedule';
 import { NotificationsService } from './notifications.service';
 import { NotificationsController } from './notifications.controller';
 import { SmsService } from './sms.service';
 import { SmsController } from './sms.controller';
-import { SmsPaymentService } from './sms-payment.service';  // ← QO'SHILDI
+import { SmsPaymentService } from './sms-payment.service';
 import { TelegramService } from './telegram.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
 import { SmsPaymentController } from './sms-payment.controller';
 import { RedisModule } from 'src/redis/redis.module';
+import { WhatsappService } from 'src/whatsapp/whatsapp.service';
 
 @Module({
   imports: [
@@ -23,7 +24,7 @@ import { RedisModule } from 'src/redis/redis.module';
     ScheduleModule.forRoot(),
   ],
   controllers: [
-    NotificationsController, 
+    NotificationsController,
     SmsController,
     SmsPaymentController,
   ],
@@ -32,6 +33,7 @@ import { RedisModule } from 'src/redis/redis.module';
     SmsService,
     SmsPaymentService,
     TelegramService,
+    WhatsappService,
   ],
   exports: [
     NotificationsService,

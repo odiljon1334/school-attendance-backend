@@ -48,6 +48,8 @@ export class WhatsappService {
 
   // ─────────────────────────────────────────────
   // SEND INTERACTIVE BUTTONS (max 3 buttons)
+  // Correct Whapi endpoint: POST /messages/interactive with type:"button"
+  // Button IDs come back with "ButtonsV3:" prefix in webhook replies
   // ─────────────────────────────────────────────
   async sendButtons(
     to: string,
@@ -58,15 +60,17 @@ export class WhatsappService {
   ): Promise<void> {
     const chatId = this.toChatId(to);
     try {
-      await this.http.post('/messages/interactive/buttons', {
+      await this.http.post('/messages/interactive', {
         to: chatId,
+        type: 'button',
         header: header ? { type: 'text', text: header } : undefined,
         body: { text: body },
         footer: footer ? { text: footer } : undefined,
         action: {
           buttons: buttons.map((b) => ({
-            type: 'reply',
-            reply: { id: b.id, title: b.title },
+            type: 'quick_reply',
+            id: b.id,
+            title: b.title,
           })),
         },
       });
@@ -85,6 +89,8 @@ export class WhatsappService {
 
   // ─────────────────────────────────────────────
   // SEND LIST (4+ options uchun)
+  // NOTE: Whapi list type requires WhatsApp Business account.
+  // For regular accounts, falls back to multiple button messages or plain text.
   // ─────────────────────────────────────────────
   async sendList(
     to: string,
@@ -98,20 +104,48 @@ export class WhatsappService {
     footer?: string,
   ): Promise<void> {
     const chatId = this.toChatId(to);
+    // Collect all rows across sections
+    const allRows = sections.flatMap((s) => s.rows);
+
+    // If 3 or fewer items, use buttons directly
+    if (allRows.length <= 3) {
+      return this.sendButtons(to, body, allRows, header, footer);
+    }
+
+    // Try to split into multiple button messages (max 3 per message)
     try {
-      await this.http.post('/messages/interactive/list', {
-        to: chatId,
-        header: header ? { type: 'text', text: header } : undefined,
-        body: { text: body },
-        footer: footer ? { text: footer } : undefined,
-        action: { button: buttonText, sections },
-      });
+      // Send header as plain text first if provided
+      if (header) {
+        await this.sendText(to, `*${header}*`);
+      }
+      // Send body text
+      await this.sendText(to, body);
+
+      // Send each section as a button group (up to 3 buttons each)
+      for (const section of sections) {
+        const rows = section.rows.slice(0, 3);
+        if (rows.length > 0) {
+          await this.http.post('/messages/interactive', {
+            to: chatId,
+            type: 'button',
+            body: { text: section.title },
+            action: {
+              buttons: rows.map((r) => ({
+                type: 'quick_reply',
+                id: r.id,
+                title: r.title,
+              })),
+            },
+          });
+        }
+      }
     } catch (err: any) {
-      // Fallback: plain text
+      // Final fallback: numbered plain text list
       this.logger.warn(`sendList fallback → ${chatId}: ${err?.message}`);
-      const items = sections.flatMap((s) =>
-        s.rows.map((r, i) => `${i + 1}. ${r.title}${r.description ? ` — ${r.description}` : ''}`),
-      );
+      const items = sections.flatMap((s, si) => [
+        `*${s.title}*`,
+        ...s.rows.map((r, i) => `  ${si * 10 + i + 1}. ${r.title}${r.description ? ` — ${r.description}` : ''}`),
+      ]);
       const fallback =
         (header ? `*${header}*\n\n` : '') +
         body +

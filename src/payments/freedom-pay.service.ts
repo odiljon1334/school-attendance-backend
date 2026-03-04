@@ -60,9 +60,9 @@ export class FreedomPayService {
   private readonly isEnabled: boolean;
 
   constructor(private configService: ConfigService) {
-    const apiUrl = this.configService.get<string>('BALANCE_KG_API_URL');
-    this.merchantId = this.configService.get<string>('BALANCE_KG_MERCHANT_ID') ?? '';
-    this.secretKey = this.configService.get<string>('BALANCE_KG_SECRET_KEY') ?? '';
+    const apiUrl = this.configService.get<string>('PAYMENT_GATEWAY_API_URL');
+    this.merchantId = this.configService.get<string>('PAYMENT_GATEWAY_MERCHANT_ID') ?? '';
+    this.secretKey = this.configService.get<string>('PAYMENT_GATEWAY_SECRET_KEY') ?? '';
 
     this.isEnabled = !!(apiUrl && this.merchantId && this.secretKey);
 

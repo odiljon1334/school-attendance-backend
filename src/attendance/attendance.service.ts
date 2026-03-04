@@ -26,7 +26,7 @@ export class AttendanceService {
     private telegramService: TelegramService,
     private smsService: SmsService,
     private redis: RedisService,
-    private configService: ConfigService,   // QO'SHILDI
+    private configService: ConfigService,
     private wa: WhatsappService,
   ) {}
 
@@ -116,7 +116,6 @@ export class AttendanceService {
 
       this.logger.log(`🔔 Turnstile event: ${personKey} device=${event.deviceId}`);
 
-      // ✅ personId ni resolve qilamiz (STU_/TCH_/DIR_ yoki eski facePersonId fallback)
       const person = await this.resolvePerson(personKey);
       if (!person) {
         this.logger.warn(`⚠️ Person not found: ${personKey}`);
@@ -198,7 +197,6 @@ export class AttendanceService {
       };
     }
 
-    // qayta kirish (late re-entry)
     const minutesAway = Math.floor(timeSinceCheckOut / 60000);
     this.logger.log(`🔁 RE-ENTRY LATE: ${person.firstName} — away ${minutesAway} min`);
     return this.handleCheckIn({ person, now, deviceId, capturePhoto, existing });
@@ -267,14 +265,12 @@ export class AttendanceService {
 
     await this.redis.incrementTodayCheckIn(person.schoolId);
 
-    // Leaderboard + notifications faqat STUDENT uchun
     if (person.type === 'STUDENT') {
       const totalAttendance = await this.prisma.attendance.count({
         where: { studentId: person.id },
       });
       await this.redis.updateAttendanceLeaderboard(person.schoolId, person.id, totalAttendance);
 
-      // ✅ 2 soat cooldown: CHECK_IN notif
       const canNotify = await this.acquireNotificationCooldownLock({
         schoolId: person.schoolId,
         personType: person.type,
@@ -299,7 +295,7 @@ export class AttendanceService {
   }
 
   // ======================================================
-  // ✅ CHECK-OUT HANDLER
+  // CHECK-OUT HANDLER
   // ======================================================
   private async handleCheckOut(params: { person: PersonResolved; record: any; now: Date }) {
     const { person, record, now } = params;
@@ -312,7 +308,6 @@ export class AttendanceService {
     this.logger.log(`🚪 CHECK-OUT: ${person.firstName} | ${now.toTimeString().slice(0, 5)}`);
 
     if (person.type === 'STUDENT') {
-      // 2 soat cooldown: CHECK_OUT notif
       const canNotify = await this.acquireNotificationCooldownLock({
         schoolId: person.schoolId,
         personType: person.type,
@@ -333,12 +328,12 @@ export class AttendanceService {
   }
 
   // ======================================================
-  // ✅ HAFTALIK KECHIKISH TEKSHIRUVI
+  // HAFTALIK KECHIKISH TEKSHIRUVI
   // ======================================================
   private async checkWeeklyAbsence(person: PersonResolved, now: Date) {
     const weekStart = new Date(now);
     const day = weekStart.getDay();
-    const diff = day === 0 ? -6 : 1 - day; // monday start
+    const diff = day === 0 ? -6 : 1 - day;
     weekStart.setDate(weekStart.getDate() + diff);
     weekStart.setHours(0, 0, 0, 0);
 
@@ -360,8 +355,7 @@ export class AttendanceService {
   }
 
   // ======================================================
-  // ✅ NOTIF COOLDOWN (2 soat)
-  // Redis get/setCache bilan ishlaydi (qo‘shimcha method shart emas)
+  // NOTIF COOLDOWN (2 soat)
   // ======================================================
   private async acquireNotificationCooldownLock(params: {
     schoolId: string;
@@ -369,7 +363,6 @@ export class AttendanceService {
     personId: string;
     kind: 'CHECK_IN' | 'CHECK_OUT' | 'ABSENT';
   }): Promise<boolean> {
-    // Teacher/director uchun ham qo‘llamoqchi bo‘lsangiz, if ni olib tashlaysiz
     if (params.personType !== 'STUDENT') return false;
 
     const ttlSec = Math.max(1, Math.floor(NOTIF_COOLDOWN_MS / 1000));
@@ -383,7 +376,7 @@ export class AttendanceService {
   }
 
   // ======================================================
-  // TO'LOV TEKSHIRUVI (SMS = pullik, Telegram = ixtiyoriy)
+  // TO'LOV TEKSHIRUVI
   // ======================================================
   private async canSendNotification(student: any): Promise<{
     sms: boolean;
@@ -392,12 +385,10 @@ export class AttendanceService {
   }> {
     const now = new Date();
 
-    // SMS o‘chirilgan bo‘lsa — faqat SMS ni bloklaymiz (Telegramni majburlab o‘chirmaymiz)
     if (!student.isSmsEnabled) {
       return { sms: false, telegram: true, reason: 'SMS disabled' };
     }
 
-    // Muddat tugagan bo‘lsa — SMSni o‘chirib qo‘yamiz
     if (student.smsPaidUntil && student.smsPaidUntil < now) {
       this.logger.warn(
         `SMS subscription expired for ${student.firstName} ${student.lastName} (expired: ${student.smsPaidUntil})`,
@@ -430,34 +421,34 @@ export class AttendanceService {
   }) {
     const { person, attendance, isLate, lateMinutes, capturePhoto } = params;
     const canSend = await this.canSendNotification(person);
-  
+
     const time = attendance.checkInTime.toLocaleTimeString('ru-RU', {
       hour: '2-digit', minute: '2-digit',
     });
     const date = new Date().toLocaleDateString('ru-RU', {
       day: '2-digit', month: '2-digit', year: 'numeric',
     });
-  
+
     const botPhone = this.configService.get<string>('WHATSAPP_BOT_PHONE') ?? '';
     const cleanBotPhone = botPhone.replace(/[^\d]/g, '');
-  
+
     for (const parent of person.parents || []) {
       try {
-        // WhatsApp
+        // ✅ WhatsApp — RUS TILI
         if (parent.isWhatsappActive && parent.whatsappPhone) {
           const waMsg =
-            `*DAVOMAT XABARI*\n\n` +
-            `Hurmatli ${parent.firstName} ${parent.lastName}!\n\n` +
-            `Ukuvchi: *${person.firstName} ${person.lastName}*\n` +
-            `Maktabga keldi: *${time}*` +
-            (isLate ? `\nKechikdi: ${lateMinutes} daqiqa` : '') +
-            `\nSana: ${date}\n\nMaktab ma'muriyati`;
-  
+            `*ПОСЕЩАЕМОСТЬ*\n\n` +
+            `Здравствуйте, уважаемый(ая) ${parent.firstName} ${parent.lastName}!\n\n` +
+            `Ученик: *${person.firstName} ${person.lastName}*\n` +
+            `Прибыл в школу: *${time}*` +
+            (isLate ? `\nОпоздание: ${lateMinutes} мин` : '') +
+            `\nДата: ${date}\n\nАдминистрация школы.`;
+
           await this.wa.sendText(parent.whatsappPhone, waMsg);
           this.logger.log(`WA check-in -> ${parent.whatsappPhone}`);
         }
-  
-        // SMS
+
+        // ✅ SMS — RUS TILI (smsService.buildCheckInMessage allaqachon rus tilida)
         if (parent.phone && canSend.sms) {
           let smsMessage = this.smsService.buildCheckInMessage({
             parentName: `${parent.firstName} ${parent.lastName}`,
@@ -466,25 +457,24 @@ export class AttendanceService {
             isLate,
             lateMinutes,
           });
-  
-          // WhatsApp ga ulanmagan ota-onaga link qo'shamiz
+
           if (!parent.isWhatsappActive && cleanBotPhone) {
-            smsMessage += `\n\nTo'lov botiga ulaning:\nwa.me/${cleanBotPhone}`;
+            smsMessage += `\n\nПодключитесь к боту WhatsApp:\nwa.me/${cleanBotPhone}`;
           }
-  
+
           await this.smsService.sendSms(parent.phone, smsMessage);
           this.logger.log(`SMS check-in -> ${parent.phone} (wa_link: ${!parent.isWhatsappActive})`);
         }
-  
-        // Telegram
+
+        // ✅ Telegram — RUS TILI
         if (parent.isTelegramActive && parent.telegramChatId && canSend.telegram) {
           const telegramMessage =
-            `Hurmatli ${parent.firstName} ${parent.lastName}!\n\n` +
-            `${person.firstName} ${person.lastName}\n` +
-            `Maktabga keldi: ${time}` +
-            (isLate ? `\nKechikdi: ${lateMinutes} min` : '') +
-            `\n\nMaktab ma'muriyati`;
-  
+            `Здравствуйте, уважаемый(ая) ${parent.firstName} ${parent.lastName}!\n\n` +
+            `Ваш ребёнок: ${person.firstName} ${person.lastName}\n` +
+            `Прибыл в школу: ${time}` +
+            (isLate ? `\nОпоздание: ${lateMinutes} мин` : '') +
+            `\nДата: ${date}\n\nАдминистрация школы.`;
+
           if (capturePhoto) {
             await this.telegramService.sendPhotoFromBase64(parent.telegramChatId, capturePhoto, telegramMessage);
           } else {
@@ -497,35 +487,35 @@ export class AttendanceService {
       }
     }
   }
-  
+
   // ======================================================
   // CHECK-OUT NOTIFICATION
   // ======================================================
   private async sendCheckOutNotification(params: { person: PersonResolved; attendance: any }) {
     const { person, attendance } = params;
     const canSend = await this.canSendNotification(person);
-  
+
     const checkInTime = attendance.checkInTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     const checkOutTime = attendance.checkOutTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     const date = new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  
+
     for (const parent of person.parents || []) {
       try {
-        // WhatsApp
+        // ✅ WhatsApp — RUS TILI
         if (parent.isWhatsappActive && parent.whatsappPhone) {
           const waMsg =
-            `*MAKTABDAN CHIQDI*\n\n` +
-            `Hurmatli ${parent.firstName} ${parent.lastName}!\n\n` +
-            `O'quvchi: *${person.firstName} ${person.lastName}*\n` +
-            `Maktabdan chiqdi: *${checkOutTime}*\n` +
-            `Kelgan vaqt: ${checkInTime}\n` +
-            `Sana: ${date}\n\nMaktab ma'muriyati`;
-  
+            `*УЧЕНИК ПОКИНУЛ ШКОЛУ*\n\n` +
+            `Здравствуйте, уважаемый(ая) ${parent.firstName} ${parent.lastName}!\n\n` +
+            `Ученик: *${person.firstName} ${person.lastName}*\n` +
+            `Покинул школу: *${checkOutTime}*\n` +
+            `Прибыл: ${checkInTime}\n` +
+            `Дата: ${date}\n\nАдминистрация школы.`;
+
           await this.wa.sendText(parent.whatsappPhone, waMsg);
           this.logger.log(`WA check-out -> ${parent.whatsappPhone}`);
         }
-  
-        // SMS
+
+        // ✅ SMS — RUS TILI
         if (parent.phone && canSend.sms) {
           const smsMessage = this.smsService.buildCheckOutMessage({
             parentName: `${parent.firstName} ${parent.lastName}`,
@@ -536,15 +526,16 @@ export class AttendanceService {
           await this.smsService.sendSms(parent.phone, smsMessage);
           this.logger.log(`SMS check-out -> ${parent.phone}`);
         }
-  
-        // Telegram
+
+        // ✅ Telegram — RUS TILI
         if (parent.isTelegramActive && parent.telegramChatId && canSend.telegram) {
           const msg =
-            `Hurmatli ${parent.firstName} ${parent.lastName}!\n\n` +
-            `${person.firstName} ${person.lastName}\n` +
-            `Maktabdan chiqdi: ${checkOutTime}\n` +
-            `Kelgan vaqt: ${checkInTime}\n\nMaktab ma'muriyati`;
-  
+            `Здравствуйте, уважаемый(ая) ${parent.firstName} ${parent.lastName}!\n\n` +
+            `Ваш ребёнок: ${person.firstName} ${person.lastName}\n` +
+            `Покинул школу: ${checkOutTime}\n` +
+            `Прибыл: ${checkInTime}\n` +
+            `Дата: ${date}\n\nАдминистрация школы.`;
+
           await this.telegramService.sendMessage(parent.telegramChatId, msg);
           this.logger.log(`TG check-out -> ${parent.telegramChatId}`);
         }
@@ -594,8 +585,6 @@ export class AttendanceService {
   private async resolvePerson(personKey: string): Promise<PersonResolved | null> {
     const key = String(personKey || '').trim();
 
-    
-
     const m = key.match(/^(STU|TCH|DIR)_(.+)$/i);
     if (m?.[1] && m?.[2]) {
       const prefix = m[1].toUpperCase();
@@ -604,20 +593,20 @@ export class AttendanceService {
       if (prefix === 'STU') {
         const student = await this.prisma.student.findUnique({
           where: { id },
-          include: { school: true,
+          include: {
+            school: true,
             parents: { include: { parent: true } },
           },
         });
         if (!student) return null;
 
-      return {
-        ...student,
-        type: 'STUDENT',
-        parents: student.parents.map((sp) => sp.parent).filter(Boolean),
-      } as PersonResolved;
+        return {
+          ...student,
+          type: 'STUDENT',
+          parents: student.parents.map((sp) => sp.parent).filter(Boolean),
+        } as PersonResolved;
       }
 
-      // TCH/DIR teacher table’da turadi
       const teacher = await this.prisma.teacher.findUnique({
         where: { id },
         include: { school: true },
@@ -631,14 +620,14 @@ export class AttendanceService {
       } as PersonResolved;
     }
 
-    // Fallback: eski tizim facePersonId orqali qidiradi
     return this.findPersonByFaceId(key);
   }
 
   private async findPersonByFaceId(facePersonId: string): Promise<PersonResolved | null> {
     const student = await this.prisma.student.findUnique({
       where: { facePersonId },
-      include: { school: true,
+      include: {
+        school: true,
         parents: { include: { parent: true } },
       },
     });

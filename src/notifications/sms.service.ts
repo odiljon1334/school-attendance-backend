@@ -31,8 +31,8 @@ export class SmsService {
       .map(url => url.trim())
       .filter(Boolean);
 
-    const username = this.configService.get<string>('SMS_GATEWAY_USER', 'admin');
-    const password = this.configService.get<string>('SMS_GATEWAY_PASS', 'admin');
+    const username = this.configService.get<string>('SMS_GATEWAY_USER', 'sms');
+    const password = this.configService.get<string>('SMS_GATEWAY_PASS', 'B4N_74WS');
 
     this.gateways = gatewayUrls.map(url => ({
       url,
@@ -55,7 +55,7 @@ export class SmsService {
     const type = opts?.type ?? 'GENERIC';
     const limit = opts?.limitPerMin ?? 3;
   
-    const rateLimit = await this.redis.checkSmsRateLimit(phoneNumber, limit, type); // <-- type qo‘shildi
+    const rateLimit = await this.redis.checkSmsRateLimit(phoneNumber, limit, type);
   
     if (!rateLimit.allowed) {
       this.logger.warn(
@@ -67,6 +67,14 @@ export class SmsService {
     this.logger.log(
       `Rate limit OK: ${phoneNumber} - ${rateLimit.remaining} remaining`
     );
+
+    const isFirst = await this.redis.isFirstSms(phoneNumber);
+    if (isFirst) {
+      const botPhone = this.configService.get<string>('WHATSAPP_BOT_PHONE', '');
+    if (botPhone) {
+      message += `\n\nWhatsApp орқали хабар олиш учун:\nhttps://wa.me/${botPhone}`;
+    }
+  }
 
     // ✅ 2. Gateway tanlash
     if (this.gateways.length === 0) {
@@ -100,7 +108,7 @@ export class SmsService {
             username: gateway.username,
             password: gateway.password,
           },
-          timeout: 10000,
+          timeout: 8000,
           headers: { 'Content-Type': 'application/json' },
         },
       );

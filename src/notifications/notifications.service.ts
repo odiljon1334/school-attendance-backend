@@ -1,12 +1,12 @@
-// src/notifications/notifications.service.ts
-
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService } from './telegram.service';
 import { SmsService } from './sms.service';
+import { WhatsappService } from 'src/whatsapp/whatsapp.service';
 import { BillingPlan, PaymentStatus } from '@prisma/client';
+import { BroadcastChannel } from './dto/notification.dto';
 
-type Channel = 'SMS' | 'TELEGRAM' | 'BOTH';
+type Channel = BroadcastChannel | 'ALL';
 
 @Injectable()
 export class NotificationsService {
@@ -16,13 +16,14 @@ export class NotificationsService {
     private prisma: PrismaService,
     private telegramService: TelegramService,
     private smsService: SmsService,
+    private whatsappService: WhatsappService,
   ) {}
 
   // =========================
   // BASIC CRUD
   // =========================
   async findAll(recipientId?: string, type?: string, isSent?: string) {
-    const where: any = {};
+    const where: any = { isRead: false, };
     if (recipientId) where.recipientId = recipientId;
     if (type) where.type = type;
     if (isSent !== undefined) where.isSent = isSent === 'true';
@@ -36,6 +37,15 @@ export class NotificationsService {
   async remove(id: string) {
     await this.prisma.notification.delete({ where: { id } });
     return { message: 'Уведомление удалено' };
+  }
+  
+
+  async markAsRead(id: string) {
+    await this.prisma.notification.update({
+      where: { id },
+      data: { isRead: true, readAt: new Date() },
+    });
+    return { message: 'Уведомление прочитано' };
   }
 
   // =========================
@@ -134,6 +144,8 @@ export class NotificationsService {
     phone?: string | null;
     isTelegramActive?: boolean | null;
     telegramChatId?: string | null;
+    isWhatsappActive?: boolean | null;
+    whatsappPhone?: string | null;
     title: string;
     message: string;
     notifType: string;
@@ -147,6 +159,8 @@ export class NotificationsService {
       phone,
       isTelegramActive,
       telegramChatId,
+      isWhatsappActive,
+      whatsappPhone,
       title,
       message,
       notifType,
@@ -156,9 +170,12 @@ export class NotificationsService {
     const normalizedPhone = this.normalizePhone(phone);
     const canSms = !!normalizedPhone;
     const canTg = !!(isTelegramActive && telegramChatId);
+    const canWa = !!(isWhatsappActive && whatsappPhone);
 
-    const wantSms = channel === 'SMS' || channel === 'BOTH';
-    const wantTg = channel === 'TELEGRAM' || channel === 'BOTH';
+    const isAll = channel === 'ALL' || (channel as string) === BroadcastChannel.ALL;
+    const wantSms = isAll || (channel as string) === BroadcastChannel.SMS;
+    const wantTg = isAll || (channel as string) === BroadcastChannel.TELEGRAM;
+    const wantWa = isAll || (channel as string) === BroadcastChannel.WHATSAPP;
 
     const tgPromise =
       wantTg && canTg
@@ -174,10 +191,8 @@ export class NotificationsService {
               ))
         : Promise.resolve({ skipped: true });
 
-    // ✅ BU YERDA: notifType bo‘yicha SMS limitni tanlaymiz
     const smsPolicy = this.getSmsPolicyByNotifType(notifType);
 
-    // ✅ IMPORTANT: bu Promise bo‘lishi shart (await YO‘Q)
     const smsPromise =
       wantSms && canSms
         ? this.smsService.sendSms(normalizedPhone!, `${title}\n\n${message}`, {
@@ -186,7 +201,14 @@ export class NotificationsService {
           })
         : Promise.resolve(false);
 
-    const [tgRes, smsRes] = await Promise.allSettled([tgPromise, smsPromise]);
+    const waPromise =
+      wantWa && canWa
+        ? this.whatsappService.sendText(whatsappPhone!, `*${title}*\n\n${message}`)
+            .then(() => true)
+            .catch(() => false)
+        : Promise.resolve(false as boolean | false);
+
+    const [tgRes, smsRes, waRes] = await Promise.allSettled([tgPromise, smsPromise, waPromise]);
 
     // Telegram result
     let tgSent = false;
@@ -208,6 +230,16 @@ export class NotificationsService {
       smsSent = Boolean(smsRes.value);
     } else {
       smsErr = smsRes.reason?.message ?? String(smsRes.reason);
+    }
+
+    // WhatsApp result
+    let waSent = false;
+    let waErr: string | null = null;
+
+    if (waRes.status === 'fulfilled') {
+      waSent = Boolean(waRes.value);
+    } else {
+      waErr = waRes.reason?.message ?? String(waRes.reason);
     }
 
     // Logs
@@ -237,9 +269,23 @@ export class NotificationsService {
       });
     }
 
+    if (wantWa && canWa) {
+      await this.createNotification({
+        recipientType,
+        recipientId,
+        type: notifType,
+        title,
+        message,
+        sentVia: 'SMS', // DB da WHATSAPP yo'q, SMS sifatida saqlaymiz
+        isSent: waSent,
+        errorText: waErr,
+      });
+    }
+
     return {
       telegram: { attempted: wantTg && canTg, sent: tgSent, skipped: tgSkipped, error: tgErr },
       sms: { attempted: wantSms && canSms, sent: smsSent, error: smsErr },
+      whatsapp: { attempted: wantWa && canWa, sent: waSent, error: waErr },
     };
   }
 
@@ -260,7 +306,18 @@ export class NotificationsService {
           include: {
             parents: {
               where: { notifySms: true },
-              include: { parent: true },
+              include: {
+                parent: {
+                  select: {
+                    id: true,
+                    phone: true,
+                    isTelegramActive: true,
+                    telegramChatId: true,
+                    isWhatsappActive: true,
+                    whatsappPhone: true,
+                  },
+                },
+              },
             },
           },
         },
@@ -297,16 +354,17 @@ export class NotificationsService {
           try {
             // ✅ Parentda ikkalasi bo'lsa ikkalasi ham ketadi
             const res = await this.sendToRecipient({
-              channel: 'BOTH',
+              channel: 'ALL',
               recipientType: 'PARENT',
               recipientId: parent.id,
               phone: parent.phone,
               isTelegramActive: parent.isTelegramActive,
               telegramChatId: parent.telegramChatId,
+              isWhatsappActive: parent.isWhatsappActive,
+              whatsappPhone: parent.whatsappPhone,
               title,
               message,
               notifType: 'ATTENDANCE',
-              // mediaBase64: attendance.photoBase64 ?? null, // agar sizda bor bo‘lsa qo‘ying
             });
 
             if (res.telegram.sent) sentTelegram++;
@@ -357,7 +415,18 @@ export class NotificationsService {
           include: {
             parents: {
               where: { notifySms: true },
-              include: { parent: true },
+              include: {
+                parent: {
+                  select: {
+                    id: true,
+                    phone: true,
+                    isTelegramActive: true,
+                    telegramChatId: true,
+                    isWhatsappActive: true,
+                    whatsappPhone: true,
+                  },
+                },
+              },
             },
           },
         },
@@ -392,12 +461,14 @@ export class NotificationsService {
         tasks.push(async () => {
           try {
             const res = await this.sendToRecipient({
-              channel: 'BOTH',
+              channel: 'ALL',
               recipientType: 'PARENT',
               recipientId: parent.id,
               phone: parent.phone,
               isTelegramActive: parent.isTelegramActive,
               telegramChatId: parent.telegramChatId,
+              isWhatsappActive: parent.isWhatsappActive,
+              whatsappPhone: parent.whatsappPhone,
               title,
               message,
               notifType: 'PAYMENT',
@@ -436,7 +507,18 @@ export class NotificationsService {
           include: {
             parents: {
               where: { notifySms: true },
-              include: { parent: true },
+              include: {
+                parent: {
+                  select: {
+                    id: true,
+                    phone: true,
+                    isTelegramActive: true,
+                    telegramChatId: true,
+                    isWhatsappActive: true,
+                    whatsappPhone: true,
+                  },
+                },
+              },
             },
           },
         },
@@ -472,12 +554,14 @@ export class NotificationsService {
       tasks.push(async () => {
         try {
           const res = await this.sendToRecipient({
-            channel: 'BOTH',
+            channel: 'ALL',
             recipientType: 'PARENT',
             recipientId: parent.id,
             phone: parent.phone,
             isTelegramActive: parent.isTelegramActive,
             telegramChatId: parent.telegramChatId,
+            isWhatsappActive: parent.isWhatsappActive,
+            whatsappPhone: parent.whatsappPhone,
             title,
             message,
             notifType: 'PAYMENT',
@@ -828,7 +912,7 @@ if (!schoolId && user?.role !== 'SUPER_ADMIN') {
         tasks.push(async () => {
           try {
             const res = await this.sendToRecipient({
-              channel: 'BOTH',
+              channel: 'ALL',
               recipientType: 'PARENT',
               recipientId: parent.id,
               phone: parent.phone,

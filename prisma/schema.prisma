@@ -458,6 +458,9 @@ model Notification {
   message String
   sentVia String
 
+  isRead    Boolean   @default(false)
+  readAt    DateTime?
+
   isSent Boolean   @default(false)
   sentAt DateTime?
 

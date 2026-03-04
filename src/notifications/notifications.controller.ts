@@ -10,6 +10,7 @@ import {
   HttpStatus,
   Query,
   Req,
+  Patch,
 } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
@@ -86,6 +87,14 @@ export class NotificationsController {
   @HttpCode(HttpStatus.OK)
   remove(@Param('id') id: string) {
     return this.notificationsService.remove(id);
+  }
+
+  @Patch(':id/read')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  markAsRead(@Param('id') id: string) {
+    console.log('NotificationRead: =>', id);
+    return this.notificationsService.markAsRead(id);
   }
   
   @Post('broadcast')

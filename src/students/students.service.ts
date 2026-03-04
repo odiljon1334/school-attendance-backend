@@ -102,7 +102,7 @@ export class StudentsService {
   
         await this.ensureUniqueEnrollNumber(tx, enrollNumber);
       } else {
-        // photo yo‘q -> enrollNumber kerak emas
+        // photo yo'q -> enrollNumber kerak emas
         enrollNumber = null;
       }
   
@@ -213,7 +213,6 @@ export class StudentsService {
       },
     });
 
-
     if (!student) throw new NotFoundException(`Student with ID ${id} not found`);
     return student;
   }
@@ -270,9 +269,15 @@ export class StudentsService {
         },
       });
   
-      // ✅ Parent link update (many-to-many)
+      // ✅ FIX: Parent link update — avval eski linklarni o'chiramiz, keyin yangi upsert
       if (dto.parent?.phone) {
         const phone = dto.parent.phone.trim();
+
+        // ✅ Eski barcha linklarni o'chiramiz (duplicate oldini olish)
+        await tx.studentParent.deleteMany({
+          where: { studentId: student.id },
+        });
+
         const parent = await tx.parent.upsert({
           where: { phone },
           update: {

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService } from './whatsapp.service';
-import { WhatsappStateService, WaSession } from './whatsapp.state.service';
+import { WhatsappStateService, WaSession, WaChild } from './whatsapp.state.service';
 import { FreedomPayService } from 'src/payments/freedom-pay.service';
 import { ConfigService } from '@nestjs/config';
 
@@ -91,7 +91,7 @@ export class WhatsappBotService {
       return this.startFlow(phone);
     }
 
-    if (['отмена', 'cancel', '❌', 'назад'].includes(lower)) {
+    if (['отмена', 'cancel', '❌', 'назад', 'bekor', 'menyu', 'menu', 'меню'].includes(lower)) {
       await this.state.update(phone, { state: 'VERIFIED' });
       return this.showMainMenu(phone);
     }
@@ -125,9 +125,14 @@ export class WhatsappBotService {
   // ШАГ 1: ПРИВЕТСТВИЕ
   // ─────────────────────────────────────────────────────────
   private async startFlow(phone: string): Promise<void> {
-    // Проверяем, зарегистрирован ли уже пользователь
+    // Qaytuvchi foydalanuvchi: whatsappPhone YOKI phone orqali topamiz
     const parent = await this.prisma.parent.findFirst({
-      where: { phone },
+      where: {
+        OR: [
+          { whatsappPhone: phone },
+          { phone },
+        ],
+      },
       include: {
         students: {
           include: {
@@ -258,19 +263,39 @@ export class WhatsappBotService {
   }
 
   // ─────────────────────────────────────────────────────────
-  // ГЛАВНОЕ МЕНЮ
+  // ГЛАВНОЕ МЕНЮ — List (7+ tugma bo'lgani uchun)
   // ─────────────────────────────────────────────────────────
   private async showMainMenu(phone: string): Promise<void> {
-    await this.wa.sendButtons(
+    await this.wa.sendList(
       phone,
-      `Что вы хотите сделать?`,
+      `Выберите нужный раздел:`,
+      `Выбрать`,
       [
-        { id: 'pay', title: '💳 Оплатить' },
-        { id: 'status', title: '📊 Статус платежей' },
-        { id: 'help', title: '❓ Помощь' },
+        {
+          title: `📋 Посещаемость`,
+          rows: [
+            { id: 'today', title: `📊 Сегодняшняя посещаемость`, description: `Пришёл ли ребёнок сегодня?` },
+            { id: 'week', title: `📅 Статистика за неделю`, description: `Последние 7 дней` },
+          ],
+        },
+        {
+          title: `💳 Оплата`,
+          rows: [
+            { id: 'pay', title: `💳 Оплатить`, description: `Через мобильный банкинг` },
+            { id: 'payment_status', title: `📊 Статус платежей`, description: `Текущие платежи` },
+          ],
+        },
+        {
+          title: `📞 Информация`,
+          rows: [
+            { id: 'teacher', title: `👨‍🏫 Классный руководитель`, description: `Контакт учителя` },
+            { id: 'school', title: `🏫 Школа`, description: `Контакт администрации` },
+            { id: 'help', title: `❓ Помощь`, description: `Команды бота` },
+          ],
+        },
       ],
       `📱 ГЛАВНОЕ МЕНЮ`,
-      `Нажмите кнопку для выбора`,
+      `Нажмите для выбора`,
     );
   }
 
@@ -287,23 +312,246 @@ export class WhatsappBotService {
 
     switch (id) {
       case 'pay':
-      case '💳 оплатить':
-      case 'оплатить':
         return this.startPaymentFlow(phone, session);
 
+      case 'payment_status':
       case 'status':
-      case '📊 статус платежей':
-      case 'статус':
         return this.showPaymentStatus(phone, session);
 
+      case 'today':
+        return this.showTodayAttendance(phone, session);
+
+      case 'week':
+        return this.showWeekAttendance(phone, session);
+
+      case 'teacher':
+        return this.showTeacherContact(phone, session);
+
+      case 'school':
+        return this.showSchoolContact(phone, session);
+
       case 'help':
-      case '❓ помощь':
-      case 'помощь':
         return this.showHelp(phone);
+
+      case 'back_menu':
+        return this.showMainMenu(phone);
 
       default:
         return this.showMainMenu(phone);
     }
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // BUGUNGI DAVOMAT
+  // ─────────────────────────────────────────────────────────
+  private async showTodayAttendance(phone: string, session: WaSession): Promise<void> {
+    if (!session.parentId) return this.startFlow(phone);
+
+    const parent = await this.prisma.parent.findUnique({
+      where: { id: session.parentId },
+      include: {
+        students: {
+          include: { student: true },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    if (!parent?.students?.length) {
+      await this.wa.sendText(phone, `❌ Ma'lumot topilmadi.`);
+      return this.showMainMenu(phone);
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    let msg = `📊 *СЕГОДНЯШНЯЯ ПОСЕЩАЕМОСТЬ*\n📅 ${today.toLocaleDateString('ru-RU')}\n\n`;
+
+    for (const sp of parent.students) {
+      const s = sp.student;
+      const attendance = await this.prisma.attendance.findFirst({
+        where: {
+          studentId: s.id,
+          date: { gte: today, lt: tomorrow },
+        },
+      });
+
+      msg += `👤 *${s.firstName} ${s.lastName}*\n`;
+
+      if (!attendance) {
+        msg += `❌ Сегодня не пришёл в школу\n\n`;
+      } else {
+        const checkIn = attendance.checkInTime
+          ? attendance.checkInTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+          : '—';
+        const checkOut = attendance.checkOutTime
+          ? attendance.checkOutTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+          : null;
+
+        msg += `✅ Пришёл: ${checkIn}\n`;
+        if (checkOut) msg += `🚪 Ушёл: ${checkOut}\n`;
+        if (attendance.lateMinutes && attendance.lateMinutes > 0) {
+          msg += `⏰ Опоздание: ${attendance.lateMinutes} мин\n`;
+        }
+        msg += `\n`;
+      }
+    }
+
+    await this.wa.sendButtons(
+      phone,
+      msg.trim(),
+      [{ id: 'week', title: `📅 За неделю` }, { id: 'back_menu', title: `⬅️ Назад` }],
+      `📊 ПОСЕЩАЕМОСТЬ`,
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // HAFTALIK STATISTIKA
+  // ─────────────────────────────────────────────────────────
+  private async showWeekAttendance(phone: string, session: WaSession): Promise<void> {
+    if (!session.parentId) return this.startFlow(phone);
+
+    const parent = await this.prisma.parent.findUnique({
+      where: { id: session.parentId },
+      include: {
+        students: {
+          include: { student: true },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    if (!parent?.students?.length) {
+      await this.wa.sendText(phone, `❌ Ma'lumot topilmadi.`);
+      return this.showMainMenu(phone);
+    }
+
+    const today = new Date();
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    let msg = `📅 *СТАТИСТИКА ЗА НЕДЕЛЮ* (7 дней)\n\n`;
+
+    for (const sp of parent.students) {
+      const s = sp.student;
+      const attendances = await this.prisma.attendance.findMany({
+        where: {
+          studentId: s.id,
+          date: { gte: weekAgo, lte: today },
+        },
+        orderBy: { date: 'desc' },
+      });
+
+      const present = attendances.filter((a) => a.status === 'PRESENT' || a.status === 'LATE').length;
+      const late = attendances.filter((a) => a.status === 'LATE').length;
+      const totalLate = attendances.reduce((sum, a) => sum + (a.lateMinutes || 0), 0);
+
+      msg += `👤 *${s.firstName} ${s.lastName}*\n`;
+      msg += `✅ Присутствовал: ${present}/7 дней\n`;
+      msg += `⏰ Опоздал: ${late} раз\n`;
+      if (totalLate > 0) msg += `⏱️ Всего опозданий: ${totalLate} мин\n`;
+      msg += `\n`;
+    }
+
+    await this.wa.sendButtons(
+      phone,
+      msg.trim(),
+      [{ id: 'today', title: `📊 Сегодня` }, { id: 'back_menu', title: `⬅️ Назад` }],
+      `📅 ЗА НЕДЕЛЮ`,
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // SINF RAHBARI KONTAKTI
+  // ─────────────────────────────────────────────────────────
+  private async showTeacherContact(phone: string, session: WaSession): Promise<void> {
+    if (!session.parentId) return this.startFlow(phone);
+
+    const parent = await this.prisma.parent.findUnique({
+      where: { id: session.parentId },
+      include: {
+        students: {
+          include: {
+            student: {
+              include: {
+                class: {
+                  include: {
+                    teacherClasses: {
+                      include: { teacher: true },
+                      take: 1,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    if (!parent?.students?.length) {
+      await this.wa.sendText(phone, `❌ Ma'lumot topilmadi.`);
+      return this.showMainMenu(phone);
+    }
+
+    let msg = `👨‍🏫 *КЛАССНЫЙ РУКОВОДИТЕЛЬ*\n\n`;
+
+    for (const sp of parent.students) {
+      const s = sp.student;
+      const teacher = s.class?.teacherClasses?.[0]?.teacher;
+      msg += `👤 ${s.firstName} ${s.lastName} (${s.class ? `${s.class.grade}-${s.class.section}` : '—'})\n`;
+      if (teacher) {
+        msg += `👨‍🏫 ${teacher.firstName ?? ''} ${teacher.lastName ?? ''}\n`;
+        if (teacher.phone) msg += `📞 ${teacher.phone}\n`;
+        msg += `Свяжитесь по телефону.\n`;
+      } else {
+        msg += `❌ Классный руководитель ещё не назначен.\n`;
+      }
+      msg += `\n`;
+    }
+
+    await this.wa.sendButtons(
+      phone,
+      msg.trim(),
+      [{ id: 'school', title: `🏫 Школа` }, { id: 'back_menu', title: `⬅️ Назад` }],
+      `👨‍🏫 КЛАССНЫЙ РУКОВОДИТЕЛЬ`,
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // MAKTAB KONTAKTI
+  // ─────────────────────────────────────────────────────────
+  private async showSchoolContact(phone: string, session: WaSession): Promise<void> {
+    if (!session.parentId) return this.startFlow(phone);
+
+    const parent = await this.prisma.parent.findUnique({
+      where: { id: session.parentId },
+      include: {
+        students: {
+          include: {
+            student: { include: { school: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+          take: 1,
+        },
+      },
+    });
+
+    const school = parent?.students?.[0]?.student?.school;
+
+    let msg = `🏫 *АДМИНИСТРАЦИЯ ШКОЛЫ*\n\n`;
+    msg += `${school?.name ?? 'Школа'}\n\n`;
+    if (school?.phone) msg += `📞 Телефон: ${school.phone}\n`;
+    if (school?.address) msg += `📍 Адрес: ${school.address}\n`;
+
+    await this.wa.sendButtons(
+      phone,
+      msg.trim(),
+      [{ id: 'teacher', title: `👨‍🏫 Кл. руководитель` }, { id: 'back_menu', title: `⬅️ Назад` }],
+      `🏫 ШКОЛА`,
+    );
   }
 
   // ─────────────────────────────────────────────────────────
@@ -419,8 +667,12 @@ export class WhatsappBotService {
   // ─────────────────────────────────────────────────────────
   private async showPlanSelection(
     phone: string,
-    child: WaSession['children'][0],
+    child: WaChild | undefined,
   ): Promise<void> {
+    if (!child) {
+      await this.wa.sendText(phone, `❌ Ребёнок не найден. Попробуйте ещё раз.`);
+      return this.showMainMenu(phone);
+    }
     // Получаем неоплаченные счета из БД
     const [monthly, yearly] = await Promise.all([
       this.prisma.payment.findFirst({
@@ -692,6 +944,8 @@ export class WhatsappBotService {
         { id: 'pay', title: `💳 Оплатить` },
         { id: 'back_menu', title: `⬅️ Назад` },
       ],
+      `📊 СТАТУС ПЛАТЕЖЕЙ`,
+      `Выберите действие`,
     );
   }
 
@@ -702,11 +956,15 @@ export class WhatsappBotService {
     await this.wa.sendText(
       phone,
       `❓ *ПОМОЩЬ*\n\n` +
-        `💳 *Оплатить* — оплата ежемесячного или годового взноса за ребёнка\n` +
-        `📊 *Статус платежей* — список последних платежей\n\n` +
+        `📊 *Сегодняшняя посещаемость* — пришёл ли ребёнок сегодня\n` +
+        `📅 *За неделю* — статистика за 7 дней\n` +
+        `💳 *Оплатить* — ежемесячный или годовой взнос (мобильный банкинг)\n` +
+        `📊 *Статус платежей* — текущие платежи\n` +
+        `👨‍🏫 *Классный руководитель* — контакт учителя\n` +
+        `🏫 *Школа* — контакт администрации\n\n` +
         `Команды:\n` +
         `• "меню" — Главное меню\n` +
-        `• "отмена" — Отменить текущее действие\n\n` +
+        `• "отмена" — Отменить действие\n\n` +
         `📞 По всем вопросам обращайтесь в администрацию школы.`,
     );
     await this.showMainMenu(phone);
@@ -776,7 +1034,10 @@ export class WhatsappBotService {
     if (msg?.type === 'interactive') {
       const ir = msg.interactive?.button_reply;
       const lr = msg.interactive?.list_reply;
-      return ir?.id ?? lr?.id ?? null;
+      const raw = ir?.id ?? lr?.id ?? null;
+      if (!raw) return null;
+      // Whapi adds "ButtonsV3:" prefix to button IDs in webhook replies
+      return raw.replace(/^ButtonsV3:/i, '');
     }
     return null;
   }

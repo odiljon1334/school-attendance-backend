@@ -9,6 +9,7 @@ const PUBLIC_PATHS = [
   '/auth/register',
   '/whatsapp/webhook',
   '/webhooks/payment',
+  '/hikvision/webhook',
 ];
 
 @Injectable()

@@ -72,7 +72,8 @@ export class NotifyParentsDto {
 export enum BroadcastChannel {
   SMS = 'SMS',
   TELEGRAM = 'TELEGRAM',
-  BOTH = 'BOTH',
+  WHATSAPP = 'WHATSAPP',
+  ALL = 'ALL',
 }
 
 export enum BroadcastTarget {
