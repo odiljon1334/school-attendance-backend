@@ -8,6 +8,10 @@ import {
 } from 'class-validator';
 
 export class CreateSchoolDto {
+  @IsUUID()
+  @IsNotEmpty()
+  districtId: string;
+
   @IsString()
   @IsNotEmpty()
   name: string;
@@ -20,34 +24,32 @@ export class CreateSchoolDto {
   @IsNotEmpty()
   address: string;
 
-  @IsString()
   @IsOptional()
+  @IsString()
   phone?: string;
 
-  @IsEmail()
   @IsOptional()
+  @IsEmail()
   email?: string;
 
-  // ✅ NEW: Username for School login
+  // ✅ REQUIRED
   @IsString()
-  @IsOptional()
-  username?: string;
+  @IsNotEmpty()
+  @MinLength(4)
+  username: string;
 
-  // ✅ NEW: Password for School login
+  // ✅ REQUIRED
   @IsString()
-  @IsOptional()
-  @MinLength(6, { message: 'Password must be at least 6 characters' })
-  password?: string;
-
-  @IsUUID()
-  @IsOptional()
-  districtId?: string;
+  @IsNotEmpty()
+  @MinLength(6)
+  password: string;
 }
 
 // ==========================================
 // ✅ UPDATE SCHOOL DTO
 // ==========================================
 export class UpdateSchoolDto {
+  
   @IsString()
   @IsOptional()
   name?: string;
@@ -69,14 +71,16 @@ export class UpdateSchoolDto {
   email?: string;
 
   // ✅ NEW: Username update
-  @IsString()
+ // optional
   @IsOptional()
+  @IsString()
+  @MinLength(4)
   username?: string;
 
-  // ✅ NEW: Password update
-  @IsString()
+  // optional
   @IsOptional()
-  @MinLength(6, { message: 'Password must be at least 6 characters' })
+  @IsString()
+  @MinLength(6)
   password?: string;
 
   @IsUUID()

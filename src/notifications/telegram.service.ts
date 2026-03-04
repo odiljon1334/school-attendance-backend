@@ -1,5 +1,3 @@
-// src/notifications/telegram.service.ts - WITH REDIS SESSION
-
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -13,7 +11,7 @@ export class TelegramService {
 
   constructor(
     private prisma: PrismaService,
-    private redis: RedisService,  // ← REDIS QO'SHILDI
+    private redis: RedisService,
     private configService: ConfigService,
   ) {
     const token = this.configService.get('TELEGRAM_BOT_TOKEN');
@@ -36,8 +34,8 @@ export class TelegramService {
 
       await ctx.reply(
         '👋 Здравствуйте!\n\n' +
-        'Добро пожаловать в официальный бот посещаемости!\n\n' +
-        'Для регистрации выберите роль:',
+          'Добро пожаловать в официальный бот посещаемости!\n\n' +
+          'Для регистрации выберите роль:',
         Markup.inlineKeyboard([
           [Markup.button.callback('👨‍👩‍👧 Родитель', 'role_parent')],
           [Markup.button.callback('👨‍🏫 Учитель', 'role_teacher')],
@@ -49,7 +47,7 @@ export class TelegramService {
     });
 
     // ==========================================
-    // CALLBACK QUERIES (BUTTON CLICKS)
+    // CALLBACK QUERIES
     // ==========================================
     this.bot.on('callback_query', async (ctx) => {
       try {
@@ -63,38 +61,28 @@ export class TelegramService {
 
         if (data.startsWith('role_')) {
           await this.handleRoleCallback(ctx, data, chatId, telegramId);
-        }
-        else if (data === 'parent_today') {
+        } else if (data === 'parent_today') {
           await this.handleParentToday(ctx, telegramId);
-        }
-        else if (data === 'parent_week') {
+        } else if (data === 'parent_week') {
           await this.handleParentWeek(ctx, telegramId);
-        }
-        else if (data === 'parent_class_teacher') {
+        } else if (data === 'parent_class_teacher') {
           await this.handleClassTeacherContact(ctx, telegramId);
-        }
-        else if (data === 'parent_school') {
+        } else if (data === 'parent_school') {
           await this.handleSchoolContact(ctx, telegramId);
-        }
-        else if (data === 'parent_help') {
+        } else if (data === 'parent_help') {
           await ctx.editMessageText(this.getParentHelp());
-        }
-        else if (data === 'parent_menu') {
+        } else if (data === 'parent_menu') {
           await this.showParentMenu(ctx);
-        }
-        else if (data === 'teacher_today') {
+        } else if (data === 'teacher_today') {
           const message = await this.getTeacherTodayReport(telegramId);
           await ctx.editMessageText(message);
-        }
-        else if (data === 'teacher_week') {
+        } else if (data === 'teacher_week') {
           const message = await this.getTeacherWeekReport(telegramId);
           await ctx.editMessageText(message);
-        }
-        else if (data === 'teacher_month') {
+        } else if (data === 'teacher_month') {
           const message = await this.getTeacherMonthReport(telegramId);
           await ctx.editMessageText(message);
         }
-
       } catch (error) {
         this.logger.error('Callback query error:', error);
         await ctx.answerCbQuery('Произошла ошибка');
@@ -196,13 +184,13 @@ export class TelegramService {
   }
 
   // ==========================================
-  // ✅ SESSION MANAGEMENT (REDIS BILAN!)
+  // SESSION MANAGEMENT (REDIS)
   // ==========================================
   private async createSession(chatId: string, telegramId: string, state: string) {
     await this.redis.setTelegramSession(
       chatId,
       { telegramId, state, createdAt: new Date().toISOString() },
-      3600, // 1 soat
+      3600,
     );
     this.logger.log(`Session created: ${chatId} (Redis)`);
   }
@@ -222,40 +210,38 @@ export class TelegramService {
   }
 
   // ==========================================
-  // ROLE SELECTION (CALLBACK)
+  // ROLE SELECTION
   // ==========================================
   private async handleRoleCallback(ctx: Context, data: string, chatId: string, telegramId: string) {
     if (data === 'role_parent') {
       await this.updateSession(chatId, 'WAITING_PARENT_PHONE');
       await ctx.editMessageText(
         '👨‍👩‍👧 РЕГИСТРАЦИЯ РОДИТЕЛЯ\n\n' +
-        '📲 Отправьте ваш номер телефона:\n' +
-        'Формат: +998901234567',
+          '📲 Отправьте ваш номер телефона:\n' +
+          'Формат: +998901234567',
       );
     } else if (data === 'role_teacher') {
       await this.updateSession(chatId, 'WAITING_TEACHER_PHONE');
       await ctx.editMessageText(
         '👨‍🏫 РЕГИСТРАЦИЯ УЧИТЕЛЯ\n\n' +
-        '📲 Отправьте ваш номер телефона:\n' +
-        'Формат: +998901234567',
+          '📲 Отправьте ваш номер телефона:\n' +
+          'Формат: +998901234567',
       );
     } else if (data === 'role_director') {
       await this.updateSession(chatId, 'WAITING_DIRECTOR_PHONE');
       await ctx.editMessageText(
         '👔 РЕГИСТРАЦИЯ ДИРЕКТОРА\n\n' +
-        '📲 Отправьте ваш номер телефона:\n' +
-        'Формат: +998901234567',
+          '📲 Отправьте ваш номер телефона:\n' +
+          'Формат: +998901234567',
       );
     }
   }
 
   // ==========================================
-  // PARENT MENU
+  // MENUS
   // ==========================================
   private async showParentMenu(ctx: Context) {
-    const message =
-      '📱 МЕНЮ РОДИТЕЛЯ\n\n' +
-      'Выберите раздел:';
+    const message = '📱 МЕНЮ РОДИТЕЛЯ\n\nВыберите раздел:';
 
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.callback('📊 Сегодняшняя посещаемость', 'parent_today')],
@@ -272,9 +258,6 @@ export class TelegramService {
     }
   }
 
-  // ==========================================
-  // TEACHER MENU
-  // ==========================================
   private async showTeacherMenu(ctx: Context) {
     const message = '👨‍🏫 МЕНЮ УЧИТЕЛЯ\n\nВыберите отчёт:';
 
@@ -287,9 +270,6 @@ export class TelegramService {
     await ctx.reply(message, keyboard);
   }
 
-  // ==========================================
-  // DIRECTOR MENU
-  // ==========================================
   private async showDirectorMenu(ctx: Context) {
     const message = '👔 МЕНЮ ДИРЕКТОРА';
 
@@ -302,7 +282,15 @@ export class TelegramService {
   }
 
   // ==========================================
-  // PARENT REGISTRATION
+  // HELPERS: select first student of parent
+  // ==========================================
+  private pickFirstLinkedStudent(parent: any) {
+    const firstLink = parent?.students?.[0];
+    return firstLink?.student ?? null;
+  }
+
+  // ==========================================
+  // PARENT REGISTRATION (M:N FIX)
   // ==========================================
   private async handleParentPhone(ctx: Context, phone: string, chatId: string, telegramId: string) {
     if (!phone.match(/^\+998\d{9}$/)) {
@@ -311,21 +299,39 @@ export class TelegramService {
     }
 
     try {
-      // Avval eski telegramId ni tozalash
+      // очистить старую привязку по telegramId (если была)
       await this.prisma.parent.updateMany({
         where: { telegramId },
-        data: { telegramId: null, isTelegramActive: false },
+        data: { telegramId: null, isTelegramActive: false, telegramChatId: null, telegramUsername: null },
       });
 
       const parent = await this.prisma.parent.findFirst({
         where: { phone },
-        include: { student: { include: { class: true } } },
+        include: {
+          students: {
+            include: {
+              student: {
+                include: { class: true, school: true },
+              },
+            },
+            orderBy: { createdAt: 'asc' },
+          },
+        },
       });
 
       if (!parent) {
         await ctx.reply(
           '❌ Номер телефона не найден в базе данных.\n\n' +
-          'Пожалуйста, обратитесь в администрацию школы.',
+            'Пожалуйста, обратитесь в администрацию школы.',
+        );
+        return;
+      }
+
+      const firstStudent = this.pickFirstLinkedStudent(parent);
+      if (!firstStudent) {
+        await ctx.reply(
+          '❌ К этому номеру телефона не привязан ни один ученик.\n\n' +
+            'Пожалуйста, обратитесь в администрацию школы.',
         );
         return;
       }
@@ -344,10 +350,10 @@ export class TelegramService {
 
       await ctx.reply(
         `✅ Регистрация прошла успешно!\n\n` +
-        `👤 Ваш ребёнок: ${parent.student.firstName} ${parent.student.lastName}\n` +
-        `📚 Класс: ${parent.student.class.grade}-${parent.student.class.section}\n` +
-        `📱 Телефон: ${phone}\n\n` +
-        `Теперь вы будете получать автоматические уведомления! ✅`,
+          `👤 Ваш ребёнок: ${firstStudent.firstName} ${firstStudent.lastName}\n` +
+          `📚 Класс: ${firstStudent.class.grade}-${firstStudent.class.section}\n` +
+          `📱 Телефон: ${phone}\n\n` +
+          `Теперь вы будете получать автоматические уведомления! ✅`,
       );
 
       await this.showParentMenu(ctx);
@@ -358,17 +364,28 @@ export class TelegramService {
   }
 
   // ==========================================
-  // PARENT ACTIONS
+  // PARENT ACTIONS (M:N FIX)
   // ==========================================
   private async handleParentToday(ctx: Context, telegramId: string) {
     try {
       const parent = await this.prisma.parent.findFirst({
         where: { telegramId },
-        include: { student: true },
+        include: {
+          students: {
+            include: { student: true },
+            orderBy: { createdAt: 'asc' },
+          },
+        },
       });
 
       if (!parent) {
         await ctx.editMessageText('❌ Данные не найдены.');
+        return;
+      }
+
+      const student = this.pickFirstLinkedStudent(parent);
+      if (!student) {
+        await ctx.editMessageText('❌ К этому родителю не привязан ученик.');
         return;
       }
 
@@ -379,13 +396,13 @@ export class TelegramService {
 
       const attendance = await this.prisma.attendance.findFirst({
         where: {
-          studentId: parent.student.id,
+          studentId: student.id,
           date: { gte: today, lt: tomorrow },
         },
       });
 
       let message = `📊 СЕГОДНЯШНЯЯ ПОСЕЩАЕМОСТЬ\n📅 ${today.toLocaleDateString('ru-RU')}\n\n`;
-      message += `👤 ${parent.student.firstName} ${parent.student.lastName}\n\n`;
+      message += `👤 ${student.firstName} ${student.lastName}\n\n`;
 
       if (!attendance) {
         message += '❌ Сегодня не пришёл в школу';
@@ -406,10 +423,7 @@ export class TelegramService {
         }
       }
 
-      const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('⬅️ Назад', 'parent_menu')],
-      ]);
-
+      const keyboard = Markup.inlineKeyboard([[Markup.button.callback('⬅️ Назад', 'parent_menu')]]);
       await ctx.editMessageText(message, keyboard);
     } catch (error) {
       this.logger.error('Parent today error:', error);
@@ -421,11 +435,22 @@ export class TelegramService {
     try {
       const parent = await this.prisma.parent.findFirst({
         where: { telegramId },
-        include: { student: true },
+        include: {
+          students: {
+            include: { student: true },
+            orderBy: { createdAt: 'asc' },
+          },
+        },
       });
 
       if (!parent) {
         await ctx.editMessageText('❌ Данные не найдены.');
+        return;
+      }
+
+      const student = this.pickFirstLinkedStudent(parent);
+      if (!student) {
+        await ctx.editMessageText('❌ К этому родителю не привязан ученик.');
         return;
       }
 
@@ -434,17 +459,17 @@ export class TelegramService {
 
       const attendances = await this.prisma.attendance.findMany({
         where: {
-          studentId: parent.student.id,
+          studentId: student.id,
           date: { gte: weekAgo, lte: today },
         },
         orderBy: { date: 'desc' },
       });
 
       let message = `📅 ЗА ЭТУ НЕДЕЛЮ (7 дней)\n\n`;
-      message += `👤 ${parent.student.firstName} ${parent.student.lastName}\n\n`;
+      message += `👤 ${student.firstName} ${student.lastName}\n\n`;
 
-      const present = attendances.filter(a => a.status === 'PRESENT' || a.status === 'LATE').length;
-      const late = attendances.filter(a => a.status === 'LATE').length;
+      const present = attendances.filter((a) => a.status === 'PRESENT' || a.status === 'LATE').length;
+      const late = attendances.filter((a) => a.status === 'LATE').length;
       const totalLateMinutes = attendances.reduce((sum, a) => sum + (a.lateMinutes || 0), 0);
 
       message += `✅ Присутствовал: ${present}/7 дней\n`;
@@ -453,10 +478,7 @@ export class TelegramService {
         message += `⏱️ Всего опозданий: ${totalLateMinutes} мин\n`;
       }
 
-      const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('⬅️ Назад', 'parent_menu')],
-      ]);
-
+      const keyboard = Markup.inlineKeyboard([[Markup.button.callback('⬅️ Назад', 'parent_menu')]]);
       await ctx.editMessageText(message, keyboard);
     } catch (error) {
       this.logger.error('Parent week error:', error);
@@ -469,17 +491,22 @@ export class TelegramService {
       const parent = await this.prisma.parent.findFirst({
         where: { telegramId },
         include: {
-          student: {
+          students: {
             include: {
-              class: {
+              student: {
                 include: {
-                  teacherClasses: {
-                    include: { teacher: true },
-                    take: 1,
+                  class: {
+                    include: {
+                      teacherClasses: {
+                        include: { teacher: true },
+                        take: 1,
+                      },
+                    },
                   },
                 },
               },
             },
+            orderBy: { createdAt: 'asc' },
           },
         },
       });
@@ -489,23 +516,25 @@ export class TelegramService {
         return;
       }
 
-      let message = `👨‍🏫 КЛАССНЫЙ РУКОВОДИТЕЛЬ\n\n`;
+      const student = this.pickFirstLinkedStudent(parent);
+      if (!student) {
+        await ctx.editMessageText('❌ К этому родителю не привязан ученик.');
+        return;
+      }
 
-      const classTeacher = parent.student.class.teacherClasses[0]?.teacher;
+      let message = `👨‍🏫 КЛАССНЫЙ РУКОВОДИТЕЛЬ\n\n`;
+      const classTeacher = student.class?.teacherClasses?.[0]?.teacher;
 
       if (classTeacher) {
-        message += `Имя: ${classTeacher.firstName} ${classTeacher.lastName}\n`;
-        message += `📞 Телефон: ${classTeacher.phone}\n\n`;
+        message += `Имя: ${classTeacher.firstName ?? ''} ${classTeacher.lastName ?? ''}\n`;
+        if (classTeacher.phone) message += `📞 Телефон: ${classTeacher.phone}\n\n`;
         message += `Для связи позвоните по телефону.`;
       } else {
         message += `❌ Классный руководитель ещё не назначен.\n\n`;
         message += `Обратитесь в администрацию школы.`;
       }
 
-      const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('⬅️ Назад', 'parent_menu')],
-      ]);
-
+      const keyboard = Markup.inlineKeyboard([[Markup.button.callback('⬅️ Назад', 'parent_menu')]]);
       await ctx.editMessageText(message, keyboard);
     } catch (error) {
       this.logger.error('Class teacher contact error:', error);
@@ -518,8 +547,13 @@ export class TelegramService {
       const parent = await this.prisma.parent.findFirst({
         where: { telegramId },
         include: {
-          student: {
-            include: { school: true },
+          students: {
+            include: {
+              student: {
+                include: { school: true },
+              },
+            },
+            orderBy: { createdAt: 'asc' },
           },
         },
       });
@@ -529,21 +563,20 @@ export class TelegramService {
         return;
       }
 
-      const school = parent.student.school;
+      const student = this.pickFirstLinkedStudent(parent);
+      if (!student) {
+        await ctx.editMessageText('❌ К этому родителю не привязан ученик.');
+        return;
+      }
+
+      const school = student.school;
 
       let message = `🏫 АДМИНИСТРАЦИЯ ШКОЛЫ\n\n`;
-      message += `${school.name}\n\n`;
-      if (school.phone) {
-        message += `📞 Телефон: ${school.phone}\n`;
-      }
-      if (school.address) {
-        message += `📍 Адрес: ${school.address}\n`;
-      }
+      message += `${school?.name ?? 'Школа'}\n\n`;
+      if (school?.phone) message += `📞 Телефон: ${school.phone}\n`;
+      if (school?.address) message += `📍 Адрес: ${school.address}\n`;
 
-      const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('⬅️ Назад', 'parent_menu')],
-      ]);
-
+      const keyboard = Markup.inlineKeyboard([[Markup.button.callback('⬅️ Назад', 'parent_menu')]]);
       await ctx.editMessageText(message, keyboard);
     } catch (error) {
       this.logger.error('School contact error:', error);
@@ -552,7 +585,7 @@ export class TelegramService {
   }
 
   // ==========================================
-  // TEACHER & DIRECTOR (same as before, qisqartiraman)
+  // TEACHER REGISTRATION
   // ==========================================
   private async handleTeacherPhone(ctx: Context, phone: string, chatId: string, telegramId: string) {
     if (!phone.match(/^\+998\d{9}$/)) {
@@ -563,7 +596,7 @@ export class TelegramService {
     try {
       await this.prisma.teacher.updateMany({
         where: { telegramId },
-        data: { telegramId: null, isTelegramActive: false },
+        data: { telegramId: null, isTelegramActive: false, telegramChatId: null, telegramUsername: null },
       });
 
       const teacher = await this.prisma.teacher.findFirst({
@@ -592,15 +625,13 @@ export class TelegramService {
 
       await this.updateSession(chatId, 'VERIFIED_TEACHER', { teacherId: teacher.id });
 
-      const classes = teacher.teacherClasses
-        .map(tc => `${tc.class.grade}-${tc.class.section}`)
-        .join(', ');
+      const classes = teacher.teacherClasses.map((tc) => `${tc.class.grade}-${tc.class.section}`).join(', ');
 
       await ctx.reply(
         `✅ Регистрация прошла успешно!\n\n` +
-        `👨‍🏫 Имя: ${teacher.firstName} ${teacher.lastName}\n` +
-        `📚 Ваши классы: ${classes || 'Ещё не назначены'}\n\n` +
-        `Помощь: /menu`,
+          `👨‍🏫 Имя: ${teacher.firstName ?? ''} ${teacher.lastName ?? ''}\n` +
+          `📚 Ваши классы: ${classes || 'Ещё не назначены'}\n\n` +
+          `Команды: /menu`,
       );
 
       await this.showTeacherMenu(ctx);
@@ -610,33 +641,34 @@ export class TelegramService {
     }
   }
 
+  // ==========================================
+  // DIRECTOR REGISTRATION (Teacher(type=DIRECTOR))
+  // ==========================================
   private async handleDirectorPhone(ctx: Context, phone: string, chatId: string, telegramId: string) {
     if (!phone.match(/^\+998\d{9}$/)) {
       await ctx.reply('❌ Неправильный формат.\nФормат: +998901234567');
       return;
     }
-  
+
     try {
-      // Avval eski telegramId ni tozalash (teacher jadvalida)
       await this.prisma.teacher.updateMany({
         where: { telegramId },
         data: { telegramId: null, isTelegramActive: false, telegramChatId: null, telegramUsername: null },
       });
-  
-      // ✅ Director = Teacher(type=DIRECTOR)
+
       const director = await this.prisma.teacher.findFirst({
         where: { phone, type: 'DIRECTOR' },
         include: { school: true },
       });
-  
+
       if (!director) {
         await ctx.reply(
           '❌ Директор с таким номером не найден.\n\n' +
-          'Проверьте номер или обратитесь к администратору (SuperAdmin).',
+            'Проверьте номер или обратитесь к администратору (SuperAdmin).',
         );
         return;
       }
-  
+
       await this.prisma.teacher.update({
         where: { id: director.id },
         data: {
@@ -646,24 +678,26 @@ export class TelegramService {
           isTelegramActive: true,
         },
       });
-  
+
       await this.updateSession(chatId, 'VERIFIED_DIRECTOR', { teacherId: director.id });
-  
+
       await ctx.reply(
         `✅ Регистрация директора прошла успешно!\n\n` +
-        `👔 Имя: ${director.firstName ?? ''} ${director.lastName ?? ''}\n` +
-        `🏫 Школа: ${director.school?.name ?? '-'}\n\n` +
-        `Команды: /menu`,
+          `👔 Имя: ${director.firstName ?? ''} ${director.lastName ?? ''}\n` +
+          `🏫 Школа: ${director.school?.name ?? '-'}\n\n` +
+          `Команды: /menu`,
       );
-  
+
       await this.showDirectorMenu(ctx);
     } catch (error) {
       this.logger.error('Director registration error:', error);
       await ctx.reply('❌ Произошла ошибка.');
     }
   }
-  
-  // Teacher reports (same as before - keeping original)
+
+  // ==========================================
+  // TEACHER REPORTS
+  // ==========================================
   private async getTeacherTodayReport(telegramId: string): Promise<string> {
     try {
       const teacher = await this.prisma.teacher.findFirst({
@@ -671,9 +705,7 @@ export class TelegramService {
         include: {
           teacherClasses: {
             include: {
-              class: {
-                include: { students: true },
-              },
+              class: { include: { students: true } },
             },
           },
         },
@@ -692,7 +724,7 @@ export class TelegramService {
 
       for (const tc of teacher.teacherClasses) {
         const cls = tc.class;
-        const studentIds = cls.students.map(s => s.id);
+        const studentIds = cls.students.map((s) => s.id);
 
         const attendances = await this.prisma.attendance.findMany({
           where: {
@@ -701,8 +733,8 @@ export class TelegramService {
           },
         });
 
-        const present = attendances.filter(a => a.status === 'PRESENT' || a.status === 'LATE').length;
-        const late = attendances.filter(a => a.status === 'LATE').length;
+        const present = attendances.filter((a) => a.status === 'PRESENT' || a.status === 'LATE').length;
+        const late = attendances.filter((a) => a.status === 'LATE').length;
         const absent = cls.students.length - attendances.length;
 
         message += `📚 ${cls.grade}-${cls.section} (${cls.students.length} уч.)\n`;
@@ -725,9 +757,7 @@ export class TelegramService {
         include: {
           teacherClasses: {
             include: {
-              class: {
-                include: { students: true },
-              },
+              class: { include: { students: true } },
             },
           },
         },
@@ -744,7 +774,7 @@ export class TelegramService {
 
       for (const tc of teacher.teacherClasses) {
         const cls = tc.class;
-        const studentIds = cls.students.map(s => s.id);
+        const studentIds = cls.students.map((s) => s.id);
 
         const attendances = await this.prisma.attendance.findMany({
           where: {
@@ -753,8 +783,8 @@ export class TelegramService {
           },
         });
 
-        const present = attendances.filter(a => a.status === 'PRESENT' || a.status === 'LATE').length;
-        const late = attendances.filter(a => a.status === 'LATE').length;
+        const present = attendances.filter((a) => a.status === 'PRESENT' || a.status === 'LATE').length;
+        const late = attendances.filter((a) => a.status === 'LATE').length;
         const total = attendances.length;
         const rate = total > 0 ? ((present / total) * 100).toFixed(1) : '0';
 
@@ -778,9 +808,7 @@ export class TelegramService {
         include: {
           teacherClasses: {
             include: {
-              class: {
-                include: { students: true },
-              },
+              class: { include: { students: true } },
             },
           },
         },
@@ -797,7 +825,7 @@ export class TelegramService {
 
       for (const tc of teacher.teacherClasses) {
         const cls = tc.class;
-        const studentIds = cls.students.map(s => s.id);
+        const studentIds = cls.students.map((s) => s.id);
 
         const attendances = await this.prisma.attendance.findMany({
           where: {
@@ -806,8 +834,8 @@ export class TelegramService {
           },
         });
 
-        const present = attendances.filter(a => a.status === 'PRESENT' || a.status === 'LATE').length;
-        const late = attendances.filter(a => a.status === 'LATE').length;
+        const present = attendances.filter((a) => a.status === 'PRESENT' || a.status === 'LATE').length;
+        const late = attendances.filter((a) => a.status === 'LATE').length;
         const total = attendances.length;
         const rate = total > 0 ? ((present / total) * 100).toFixed(1) : '0';
 
@@ -838,10 +866,6 @@ export class TelegramService {
       `📅 За эту неделю - недельная статистика\n` +
       `👨‍🏫 Классный руководитель - связь с учителем\n` +
       `🏫 Школа - контактная информация школы\n\n` +
-      `Автоматические уведомления:\n` +
-      `• Пришёл/ушёл из школы\n` +
-      `• Об опозданиях\n` +
-      `• Напоминания об оплате\n\n` +
       `Команды:\n` +
       `/menu - Главное меню\n` +
       `/help - Помощь`
@@ -875,9 +899,7 @@ export class TelegramService {
   // PUBLIC METHODS
   // ==========================================
   async sendMessage(chatId: string, message: string) {
-    if (!this.bot) {
-      throw new Error('Telegram bot not initialized');
-    }
+    if (!this.bot) throw new Error('Telegram bot not initialized');
 
     try {
       await this.bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });
@@ -889,45 +911,32 @@ export class TelegramService {
   }
 
   async sendPhotoFromBase64(chatId: string, photoBase64: string, caption: string) {
-    if (!this.bot) {
-      throw new Error('Telegram bot not initialized');
-    }
+    if (!this.bot) throw new Error('Telegram bot not initialized');
 
     try {
       let cleanBase64 = photoBase64;
 
       if (photoBase64.includes('data:image')) {
         const base64Parts = photoBase64.split(',');
-        if (base64Parts.length > 1) {
-          cleanBase64 = base64Parts[1];
-        }
+        if (base64Parts.length > 1) cleanBase64 = base64Parts[1];
       }
 
       const buffer = Buffer.from(cleanBase64, 'base64');
-
-      if (buffer.length === 0) {
-        throw new Error('Invalid or empty image data');
-      }
+      if (buffer.length === 0) throw new Error('Invalid or empty image data');
 
       await this.bot.telegram.sendPhoto(
         chatId,
         { source: buffer },
-        { caption: caption, parse_mode: 'HTML' },
+        { caption, parse_mode: 'HTML' },
       );
 
       this.logger.log(`Photo sent to chat ${chatId}`);
       return { success: true };
     } catch (error) {
       this.logger.error(`Failed to send photo to ${chatId}:`, error);
-
-      try {
-        await this.sendMessage(chatId, caption);
-        this.logger.log(`Sent text-only message as fallback to ${chatId}`);
-        return { success: true, fallback: true };
-      } catch (fallbackError) {
-        this.logger.error(`Fallback also failed:`, fallbackError);
-        throw error;
-      }
+      // fallback: send caption only
+      await this.sendMessage(chatId, caption);
+      return { success: true, fallback: true };
     }
   }
 }

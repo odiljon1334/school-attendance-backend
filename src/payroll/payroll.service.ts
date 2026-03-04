@@ -12,12 +12,15 @@ export class PayrollService {
    */
   async calculateMonthlyPayroll(teacherId: string, month: string) {
     // Get teacher schedule
+    console.log('PAYROLL teacherId=', teacherId, 'month=', month);
+    const s = await this.prisma.teacherSchedule.findFirst({ where: { teacherId } });
+    console.log('SCHEDULE FOUND?', !!s);
     const schedule = await this.prisma.teacherSchedule.findUnique({
       where: { teacherId },
     });
 
     if (!schedule) {
-      throw new Error('Teacher schedule not found');
+      return null;
     }
 
     // Get all attendance records for the month
@@ -250,7 +253,6 @@ export class PayrollService {
     });
 
     if (!payroll) {
-      // Calculate if not exists
       return this.calculateMonthlyPayroll(teacherId, month);
     }
 
@@ -302,13 +304,15 @@ export class PayrollService {
   /**
    * Set teacher work schedule
    */
+  // ✅ To'g'ri — create yoki update, ikkalasi ham ishlaydi
   async setTeacherSchedule(teacherId: string, scheduleData: any) {
-    return this.prisma.teacherSchedule.create({
-      data: {
-        teacherId,
-        ...scheduleData,
-      },
-    });
+  console.log('SCHEDULE DATA:', JSON.stringify(scheduleData));
+  console.log('TEACHER ID:', teacherId);
+  return this.prisma.teacherSchedule.upsert({
+    where: { teacherId },
+    create: { teacherId, ...scheduleData },
+    update: scheduleData,
+  });
   }
 
   /**
@@ -367,8 +371,8 @@ export class PayrollService {
 
     return {
       month,
-      total: results.length,
-      payrolls: results,
+      total: results.filter(Boolean).length,
+      payrolls: results.filter(Boolean),
     };
   }
 

@@ -1,5 +1,3 @@
-// src/attendance/attendance.controller.ts - WITH NEW ENDPOINTS
-
 import {
   Controller,
   Get,
@@ -13,6 +11,7 @@ import {
   HttpStatus,
   Query,
   Logger,
+  BadRequestException,
 } from '@nestjs/common';
 import { AttendanceService } from './attendance.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
@@ -21,6 +20,14 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@prisma/client';
 import { CreateAttendanceDto, UpdateAttendanceDto } from './dto/attendance.dto';
 
+type TurnstileTestDto = {
+  personId: string;
+  deviceId?: string;
+  photoBase64?: string;
+  timestamp?: string;
+  eventType?: string;
+};
+
 @Controller('attendance')
 export class AttendanceController {
   private readonly logger = new Logger(AttendanceController.name);
@@ -28,78 +35,46 @@ export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
 
   // ==========================================
-  // ✅ HIKVISION WEBHOOK (NO AUTH)
+  // ✅ REPORT (Frontend ishlatadi)
   // ==========================================
-  @Post('turnstile/event')
-  @HttpCode(HttpStatus.OK)
-  async handleTurnstileEvent(@Body() body: any) {
-    try {
-      this.logger.log('Turnstile event received:', JSON.stringify(body));
-
-      const event = this.parseHikvisionEvent(body);
-
-      if (!event) {
-        this.logger.warn('Invalid event format');
-        return { success: false, message: 'Invalid event format' };
-      }
-
-      await this.attendanceService.handleTurnstileEvent(event);
-
-      return { success: true, message: 'Event processed' };
-    } catch (error) {
-      this.logger.error('Error handling turnstile event:', error);
-      return { success: false, message: error.message };
-    }
-  }
-
-  private parseHikvisionEvent(body: any) {
-    try {
-      // Format 1: Standard Hikvision
-      if (body.PersonID || body.personId) {
-        return {
-          personId: body.PersonID || body.personId,
-          deviceId: body.DeviceID || body.deviceId || 'UNKNOWN',
-          timestamp: body.Time || body.timestamp || new Date().toISOString(),
-          eventType: body.EventCode || body.eventType || 'CheckIn',
-          capturePhoto: body.CaptureImage || body.capturePhoto || body.captureImage,
-        };
-      }
-
-      // Format 2: Custom/Alternative
-      if (body.facePersonId || body.faceId) {
-        return {
-          personId: body.facePersonId || body.faceId,
-          deviceId: body.deviceId || 'UNKNOWN',
-          timestamp: body.timestamp || new Date().toISOString(),
-          eventType: body.eventType || 'CheckIn',
-          capturePhoto: body.photo || body.image || body.capturePhoto,
-        };
-      }
-
-      return null;
-    } catch (error) {
-      this.logger.error('Error parsing event:', error);
-      return null;
-    }
-  }
-
-  @Post('turnstile/test')
-  @HttpCode(HttpStatus.OK)
-  async testTurnstileEvent(
+  @Post('report')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.DISTRICT_ADMIN,
+    UserRole.SCHOOL_ADMIN,
+    UserRole.DIRECTOR,
+    UserRole.TEACHER,
+  )
+  generateReport(
     @Body()
-    body: {
-      facePersonId: string;
-      deviceId?: string;
-      photoBase64?: string;
+    dto: {
+      schoolId: string;
+      startDate?: string;
+      endDate?: string;
+      classId?: string;
+      studentId?: string;
+      teacherId?: string;
     },
   ) {
-    this.logger.log('Test event received');
+    return this.attendanceService.generateReport(dto);
+  }
+
+  // ==========================================
+  // ✅ TURNSTILE TEST (DEV/QA uchun)
+  // ==========================================
+  @Post('turnstile/test')
+  @HttpCode(HttpStatus.OK)
+  async testTurnstileEvent(@Body() body: TurnstileTestDto) {
+    if (!body?.personId) throw new BadRequestException('personId is required');
+
+    this.logger.log(`Turnstile TEST event: ${body.personId}`);
 
     await this.attendanceService.handleTurnstileEvent({
-      personId: body.facePersonId,
+      personId: body.personId,
       deviceId: body.deviceId || 'TEST_DEVICE',
-      timestamp: new Date().toISOString(),
-      eventType: 'CheckIn',
+      timestamp: body.timestamp || new Date().toISOString(),
+      eventType: body.eventType || 'FACE_RECOGNITION',
       capturePhoto: body.photoBase64,
     });
 
@@ -107,7 +82,7 @@ export class AttendanceController {
   }
 
   // ==========================================
-  // ✅ NEW: TODAY STATS (FAST)
+  // ✅ TODAY STATS (Frontend ishlatadi)
   // ==========================================
   @Get('stats/today/:schoolId')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -123,7 +98,7 @@ export class AttendanceController {
   }
 
   // ==========================================
-  // ✅ NEW: TOP STUDENTS (LEADERBOARD)
+  // ✅ TOP STUDENTS (Frontend ishlatadi)
   // ==========================================
   @Get('top-students/:schoolId')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -134,18 +109,14 @@ export class AttendanceController {
     UserRole.DIRECTOR,
     UserRole.TEACHER,
   )
-  getTopStudents(
-    @Param('schoolId') schoolId: string,
-    @Query('limit') limit?: string,
-  ) {
+  getTopStudents(@Param('schoolId') schoolId: string, @Query('limit') limit?: string) {
     const parsedLimit = limit ? parseInt(limit, 10) : 10;
     return this.attendanceService.getTopStudents(schoolId, parsedLimit);
   }
 
   // ==========================================
-  // EXISTING ENDPOINTS (WITH AUTH)
+  // ✅ CRUD (Frontend attendance yuboradi)
   // ==========================================
-
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.SUPER_ADMIN, UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR, UserRole.TEACHER)
@@ -170,7 +141,7 @@ export class AttendanceController {
     @Query('teacherId') teacherId?: string,
     @Query('classId') classId?: string,
   ) {
-    return this.attendanceService.findAll(schoolId, date, studentId, classId);
+    return this.attendanceService.findAll(schoolId, date, studentId, teacherId, classId);
   }
 
   @Get('today/:schoolId')

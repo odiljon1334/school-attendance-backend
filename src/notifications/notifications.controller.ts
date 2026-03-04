@@ -9,12 +9,14 @@ import {
   HttpCode,
   HttpStatus,
   Query,
+  Req,
 } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@prisma/client';
+import { BroadcastDto } from './dto/notification.dto';
 
 export class SendDailyAttendanceDto {
   schoolId: string;
@@ -85,4 +87,18 @@ export class NotificationsController {
   remove(@Param('id') id: string) {
     return this.notificationsService.remove(id);
   }
+  
+  @Post('broadcast')
+  @Roles(
+  UserRole.SUPER_ADMIN,
+  UserRole.DISTRICT_ADMIN,
+  UserRole.SCHOOL_ADMIN,
+  UserRole.DIRECTOR,
+)
+@HttpCode(HttpStatus.OK)
+broadcast(@Body() dto: BroadcastDto, @Req() req: any) {
+  console.log('notificationBroadcast: =>', dto, req.user)
+  return this.notificationsService.broadcast(dto, req.user);
+}
+
 }

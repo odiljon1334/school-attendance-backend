@@ -1,5 +1,3 @@
-// src/attendance/attendance.service.ts - FULLY OPTIMIZED WITH REDIS
-
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService } from '../notifications/telegram.service';
@@ -7,11 +5,17 @@ import { SmsService } from '../notifications/sms.service';
 import { CreateAttendanceDto, UpdateAttendanceDto } from './dto/attendance.dto';
 import { RedisService } from 'src/redis/redis.service';
 import { DashboardService } from 'src/dashboard/dashboard.service';
+import { ConfigService } from '@nestjs/config';
+import { WhatsappService } from 'src/whatsapp/whatsapp.service';
 
-const MIN_CHECKOUT_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 soat
-const RE_ENTRY_GRACE_MS        = 10 * 60 * 1000;      // 10 daqiqa
-const ABSENT_THRESHOLD_MIN     = 6 * 60;              // 360 daqiqa = 6 soat
-const SCHOOL_START_HOUR        = 9;                   // 09:00
+const MIN_CHECKOUT_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 soat (checkout uchun)
+const RE_ENTRY_GRACE_MS = 10 * 60 * 1000; // 10 daqiqa
+const ABSENT_THRESHOLD_MIN = 6 * 60; // 360 daqiqa = 6 soat
+const SCHOOL_START_HOUR = 8; // 09:00
+const NOTIF_COOLDOWN_MS = 2 * 60 * 60 * 1000; // 2 soat xabar cheklash!
+
+type PersonType = 'STUDENT' | 'TEACHER' | 'DIRECTOR';
+type PersonResolved = any & { type: PersonType };
 
 @Injectable()
 export class AttendanceService {
@@ -22,15 +26,48 @@ export class AttendanceService {
     private telegramService: TelegramService,
     private smsService: SmsService,
     private redis: RedisService,
-    private dashboardService: DashboardService,
+    private configService: ConfigService,   // QO'SHILDI
+    private wa: WhatsappService,
   ) {}
 
-  // ==========================================
-  // ✅ CACHE INVALIDATION (optimized)
-  // ==========================================
+  // ======================================================
+  // REPORT
+  // ======================================================
+  async generateReport(dto: {
+    schoolId: string;
+    startDate?: string;
+    endDate?: string;
+    classId?: string;
+    studentId?: string;
+    teacherId?: string;
+  }) {
+    const where: any = { schoolId: dto.schoolId };
+
+    if (dto.studentId) where.studentId = dto.studentId;
+    if (dto.teacherId) where.teacherId = dto.teacherId;
+
+    if (dto.classId) {
+      where.student = { classId: dto.classId };
+    }
+
+    if (dto.startDate || dto.endDate) {
+      const start = dto.startDate ? new Date(dto.startDate) : new Date('1970-01-01');
+      const end = dto.endDate ? new Date(dto.endDate) : new Date();
+      end.setHours(23, 59, 59, 999);
+      where.date = { gte: start, lte: end };
+    }
+
+    return this.prisma.attendance.findMany({
+      where,
+      orderBy: { date: 'desc' },
+    });
+  }
+
+  // ======================================================
+  // ✅ CACHE INVALIDATION
+  // ======================================================
   private async invalidateDashboardCache(schoolId: string) {
     try {
-      // Batch delete for efficiency
       const keysToDelete = [
         `dashboard:school:${schoolId}`,
         `dashboard:overview`,
@@ -38,14 +75,12 @@ export class AttendanceService {
         `cache:stats:today:${schoolId}`,
       ];
 
-      // Get trend keys
       const trendKeys = await this.redis.smembers(`dashboard:keys:school:${schoolId}`);
       if (trendKeys?.length) {
         keysToDelete.push(...trendKeys);
         keysToDelete.push(`dashboard:keys:school:${schoolId}`);
       }
 
-      // Get district cache key
       const school = await this.prisma.school.findUnique({
         where: { id: schoolId },
         select: { districtId: true },
@@ -55,10 +90,7 @@ export class AttendanceService {
         keysToDelete.push(`dashboard:district:${school.districtId}`);
       }
 
-      // Delete all at once
       await this.redis.del(...keysToDelete);
-
-      // Also delete pattern-based cache keys
       await this.redis.deleteCachePattern(`attendance:today:${schoolId}:*`);
 
       this.logger.log(`✅ Cache invalidated for school: ${schoolId}`);
@@ -67,9 +99,10 @@ export class AttendanceService {
     }
   }
 
-  // ==========================================
-  // ✅ MAIN: HIKVISION TURNSTILE EVENT
-  // ==========================================
+  // ======================================================
+  // MAIN: TURNSTILE EVENT (HikvisionService dan keladi)
+  // personId: "STU_<uuid>" | "TCH_<uuid>" | "DIR_<uuid>"
+  // ======================================================
   async handleTurnstileEvent(event: {
     personId: string;
     deviceId: string;
@@ -78,32 +111,38 @@ export class AttendanceService {
     capturePhoto?: string;
   }) {
     try {
-      this.logger.log(`🔔 Turnstile event: ${event.personId}`);
+      const personKey = String(event.personId || '').trim();
+      if (!personKey) return { success: false, message: 'personId missing' };
 
-      const person = await this.findPersonByFaceId(event.personId);
+      this.logger.log(`🔔 Turnstile event: ${personKey} device=${event.deviceId}`);
+
+      // ✅ personId ni resolve qilamiz (STU_/TCH_/DIR_ yoki eski facePersonId fallback)
+      const person = await this.resolvePerson(personKey);
       if (!person) {
-        this.logger.warn(`⚠️ Person not found: ${event.personId}`);
+        this.logger.warn(`⚠️ Person not found: ${personKey}`);
         return { success: false, message: 'Person not found' };
       }
 
-      const now = new Date();
-      return await this.processAttendanceLogic({
+      const now = new Date(event.timestamp || Date.now());
+      const res = await this.processAttendanceLogic({
         person,
         now,
         deviceId: event.deviceId,
         capturePhoto: event.capturePhoto,
       });
+
+      return res;
     } catch (error) {
       this.logger.error('Turnstile event error:', error);
       throw error;
     }
   }
 
-  // ==========================================
-  // ✅ CORE LOGIKA
-  // ==========================================
+  // ======================================================
+  // CORE LOGIKA
+  // ======================================================
   private async processAttendanceLogic(params: {
-    person: any;
+    person: PersonResolved;
     now: Date;
     deviceId: string;
     capturePhoto?: string;
@@ -121,11 +160,12 @@ export class AttendanceService {
         studentId: person.type === 'STUDENT' ? person.id : undefined,
         teacherId: person.type === 'TEACHER' || person.type === 'DIRECTOR' ? person.id : undefined,
       },
+      orderBy: { checkInTime: 'desc' },
     });
 
     // CASE 1: Bugun hali kelmagan
     if (!existing) {
-      return await this.handleCheckIn({ person, now, deviceId, capturePhoto, existing: null });
+      return this.handleCheckIn({ person, now, deviceId, capturePhoto, existing: null });
     }
 
     // CASE 2: Maktabda (hali chiqmagan)
@@ -133,7 +173,7 @@ export class AttendanceService {
       const timeSinceCheckIn = now.getTime() - existing.checkInTime.getTime();
 
       if (timeSinceCheckIn >= MIN_CHECKOUT_INTERVAL_MS) {
-        return await this.handleCheckOut({ person, record: existing, now });
+        return this.handleCheckOut({ person, record: existing, now });
       }
 
       const minutesLeft = Math.ceil((MIN_CHECKOUT_INTERVAL_MS - timeSinceCheckIn) / 60000);
@@ -158,16 +198,17 @@ export class AttendanceService {
       };
     }
 
+    // qayta kirish (late re-entry)
     const minutesAway = Math.floor(timeSinceCheckOut / 60000);
     this.logger.log(`🔁 RE-ENTRY LATE: ${person.firstName} — away ${minutesAway} min`);
-    return await this.handleCheckIn({ person, now, deviceId, capturePhoto, existing });
+    return this.handleCheckIn({ person, now, deviceId, capturePhoto, existing });
   }
 
-  // ==========================================
-  // ✅ CHECK-IN HANDLER (with Redis counters)
-  // ==========================================
+  // ======================================================
+  // CHECK-IN HANDLER
+  // ======================================================
   private async handleCheckIn(params: {
-    person: any;
+    person: PersonResolved;
     now: Date;
     deviceId: string;
     capturePhoto?: string;
@@ -200,6 +241,7 @@ export class AttendanceService {
           deviceId,
         },
       });
+
       this.logger.log(
         `✅ CHECK-IN (new): ${person.firstName} | ${now.toTimeString().slice(0, 5)} | Late: ${isLate}`,
       );
@@ -210,47 +252,56 @@ export class AttendanceService {
       attendance = await this.prisma.attendance.update({
         where: { id: existing.id },
         data: {
-          status: 'LATE',
+          status: isLate ? 'LATE' : 'PRESENT',
           checkInTime: now,
           checkOutTime: null,
           lateMinutes: newLateMinutes,
           lateCount: newLateCount,
         },
       });
+
       this.logger.log(
         `✅ CHECK-IN (re-entry): ${person.firstName} | Late count: ${newLateCount} | Total: ${newLateMinutes} min`,
       );
     }
 
-    // ✅ NEW: Real-time counter (Redis)
     await this.redis.incrementTodayCheckIn(person.schoolId);
 
-    // ✅ NEW: Leaderboard update (for students only)
+    // Leaderboard + notifications faqat STUDENT uchun
     if (person.type === 'STUDENT') {
       const totalAttendance = await this.prisma.attendance.count({
         where: { studentId: person.id },
       });
       await this.redis.updateAttendanceLeaderboard(person.schoolId, person.id, totalAttendance);
 
-      // Send notifications
-      await this.sendCheckInNotification({ person, attendance, isLate, lateMinutes, capturePhoto });
+      // ✅ 2 soat cooldown: CHECK_IN notif
+      const canNotify = await this.acquireNotificationCooldownLock({
+        schoolId: person.schoolId,
+        personType: person.type,
+        personId: person.id,
+        kind: 'CHECK_IN',
+      });
 
-      // Check weekly absence
+      if (canNotify) {
+        await this.sendCheckInNotification({ person, attendance, isLate, lateMinutes, capturePhoto });
+      } else {
+        this.logger.log(`🔕 CHECK-IN notif suppressed (cooldown): student=${person.id}`);
+      }
+
       if (isLate) {
-        await this.checkWeeklyAbsence(person, now, attendance);
+        await this.checkWeeklyAbsence(person, now);
       }
     }
 
-    // ✅ Cache invalidation
     await this.invalidateDashboardCache(person.schoolId);
 
     return { success: true, action: 'CHECK_IN', attendance };
   }
 
-  // ==========================================
-  // ✅ CHECK-OUT HANDLER (with cache update)
-  // ==========================================
-  private async handleCheckOut(params: { person: any; record: any; now: Date }) {
+  // ======================================================
+  // ✅ CHECK-OUT HANDLER
+  // ======================================================
+  private async handleCheckOut(params: { person: PersonResolved; record: any; now: Date }) {
     const { person, record, now } = params;
 
     const updated = await this.prisma.attendance.update({
@@ -260,24 +311,34 @@ export class AttendanceService {
 
     this.logger.log(`🚪 CHECK-OUT: ${person.firstName} | ${now.toTimeString().slice(0, 5)}`);
 
-    // Send notification for students
     if (person.type === 'STUDENT') {
-      await this.sendCheckOutNotification({ person, attendance: updated });
+      // 2 soat cooldown: CHECK_OUT notif
+      const canNotify = await this.acquireNotificationCooldownLock({
+        schoolId: person.schoolId,
+        personType: person.type,
+        personId: person.id,
+        kind: 'CHECK_OUT',
+      });
+
+      if (canNotify) {
+        await this.sendCheckOutNotification({ person, attendance: updated });
+      } else {
+        this.logger.log(`🔕 CHECK-OUT notif suppressed (cooldown): student=${person.id}`);
+      }
     }
 
-    // ✅ Cache invalidation
     await this.invalidateDashboardCache(person.schoolId);
 
     return { success: true, action: 'CHECK_OUT', attendance: updated };
   }
 
-  // ==========================================
+  // ======================================================
   // ✅ HAFTALIK KECHIKISH TEKSHIRUVI
-  // ==========================================
-  private async checkWeeklyAbsence(person: any, now: Date, currentAttendance: any) {
+  // ======================================================
+  private async checkWeeklyAbsence(person: PersonResolved, now: Date) {
     const weekStart = new Date(now);
     const day = weekStart.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
+    const diff = day === 0 ? -6 : 1 - day; // monday start
     weekStart.setDate(weekStart.getDate() + diff);
     weekStart.setHours(0, 0, 0, 0);
 
@@ -290,9 +351,7 @@ export class AttendanceService {
 
     const totalLateMinutes = weekRecords.reduce((sum, r) => sum + (r.lateMinutes || 0), 0);
 
-    this.logger.log(
-      `📊 Weekly late: ${person.firstName} | ${totalLateMinutes} min / ${ABSENT_THRESHOLD_MIN} min`,
-    );
+    this.logger.log(`📊 Weekly late: ${person.firstName} | ${totalLateMinutes} min / ${ABSENT_THRESHOLD_MIN} min`);
 
     if (totalLateMinutes >= ABSENT_THRESHOLD_MIN) {
       this.logger.warn(`⚠️ ABSENT: ${person.firstName} | ${totalLateMinutes} min this week!`);
@@ -300,9 +359,32 @@ export class AttendanceService {
     }
   }
 
-  // ==========================================
-  // ✅ TO'LOV TEKSHIRUVI
-  // ==========================================
+  // ======================================================
+  // ✅ NOTIF COOLDOWN (2 soat)
+  // Redis get/setCache bilan ishlaydi (qo‘shimcha method shart emas)
+  // ======================================================
+  private async acquireNotificationCooldownLock(params: {
+    schoolId: string;
+    personType: PersonType;
+    personId: string;
+    kind: 'CHECK_IN' | 'CHECK_OUT' | 'ABSENT';
+  }): Promise<boolean> {
+    // Teacher/director uchun ham qo‘llamoqchi bo‘lsangiz, if ni olib tashlaysiz
+    if (params.personType !== 'STUDENT') return false;
+
+    const ttlSec = Math.max(1, Math.floor(NOTIF_COOLDOWN_MS / 1000));
+    const key = `notif:cooldown:${params.kind}:${params.schoolId}:${params.personId}`;
+
+    const exists = await this.redis.getCache(key);
+    if (exists) return false;
+
+    await this.redis.setCache(key, { at: Date.now() }, ttlSec);
+    return true;
+  }
+
+  // ======================================================
+  // TO'LOV TEKSHIRUVI (SMS = pullik, Telegram = ixtiyoriy)
+  // ======================================================
   private async canSendNotification(student: any): Promise<{
     sms: boolean;
     telegram: boolean;
@@ -310,13 +392,12 @@ export class AttendanceService {
   }> {
     const now = new Date();
 
-    // isSmsEnabled o'chirilgan
+    // SMS o‘chirilgan bo‘lsa — faqat SMS ni bloklaymiz (Telegramni majburlab o‘chirmaymiz)
     if (!student.isSmsEnabled) {
-      this.logger.warn(`SMS disabled for student ${student.firstName} ${student.lastName}`);
-      return { sms: false, telegram: false, reason: 'SMS service disabled' };
+      return { sms: false, telegram: true, reason: 'SMS disabled' };
     }
 
-    // Muddat tugagan
+    // Muddat tugagan bo‘lsa — SMSni o‘chirib qo‘yamiz
     if (student.smsPaidUntil && student.smsPaidUntil < now) {
       this.logger.warn(
         `SMS subscription expired for ${student.firstName} ${student.lastName} (expired: ${student.smsPaidUntil})`,
@@ -331,102 +412,119 @@ export class AttendanceService {
         this.logger.error('Failed to auto-disable SMS:', err);
       }
 
-      return { sms: false, telegram: false, reason: 'SMS subscription expired' };
+      return { sms: false, telegram: true, reason: 'SMS subscription expired' };
     }
 
-    // ✅ Hammasi yaxshi
     return { sms: true, telegram: true };
   }
 
-  // ==========================================
-  // ✅ CHECK-IN NOTIFICATION (WITH PAYMENT CHECK)
-  // ==========================================
+  // ======================================================
+  // CHECK-IN NOTIFICATION
+  // ======================================================
   private async sendCheckInNotification(params: {
-    person: any;
+    person: PersonResolved;
     attendance: any;
     isLate: boolean;
     lateMinutes: number;
     capturePhoto?: string;
   }) {
     const { person, attendance, isLate, lateMinutes, capturePhoto } = params;
-
-    // ✅ TO'LOV TEKSHIRUVI
     const canSend = await this.canSendNotification(person);
-    if (!canSend.sms) {
-      this.logger.log(`🚫 Notification blocked: ${canSend.reason}`);
-      return;
-    }
-
+  
     const time = attendance.checkInTime.toLocaleTimeString('ru-RU', {
-      hour: '2-digit',
-      minute: '2-digit',
+      hour: '2-digit', minute: '2-digit',
     });
-
+    const date = new Date().toLocaleDateString('ru-RU', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+    });
+  
+    const botPhone = this.configService.get<string>('WHATSAPP_BOT_PHONE') ?? '';
+    const cleanBotPhone = botPhone.replace(/[^\d]/g, '');
+  
     for (const parent of person.parents || []) {
       try {
+        // WhatsApp
+        if (parent.isWhatsappActive && parent.whatsappPhone) {
+          const waMsg =
+            `*DAVOMAT XABARI*\n\n` +
+            `Hurmatli ${parent.firstName} ${parent.lastName}!\n\n` +
+            `Ukuvchi: *${person.firstName} ${person.lastName}*\n` +
+            `Maktabga keldi: *${time}*` +
+            (isLate ? `\nKechikdi: ${lateMinutes} daqiqa` : '') +
+            `\nSana: ${date}\n\nMaktab ma'muriyati`;
+  
+          await this.wa.sendText(parent.whatsappPhone, waMsg);
+          this.logger.log(`WA check-in -> ${parent.whatsappPhone}`);
+        }
+  
         // SMS
         if (parent.phone && canSend.sms) {
-          const smsMessage = this.smsService.buildCheckInMessage({
+          let smsMessage = this.smsService.buildCheckInMessage({
             parentName: `${parent.firstName} ${parent.lastName}`,
             studentName: `${person.firstName} ${person.lastName}`,
             time,
             isLate,
             lateMinutes,
           });
+  
+          // WhatsApp ga ulanmagan ota-onaga link qo'shamiz
+          if (!parent.isWhatsappActive && cleanBotPhone) {
+            smsMessage += `\n\nTo'lov botiga ulaning:\nwa.me/${cleanBotPhone}`;
+          }
+  
           await this.smsService.sendSms(parent.phone, smsMessage);
-          this.logger.log(`📱 Check-in SMS → ${parent.phone}`);
+          this.logger.log(`SMS check-in -> ${parent.phone} (wa_link: ${!parent.isWhatsappActive})`);
         }
-
+  
         // Telegram
         if (parent.isTelegramActive && parent.telegramChatId && canSend.telegram) {
           const telegramMessage =
-            `Здравствуйте, уважаемый(ая) ${parent.firstName} ${parent.lastName}!\n\n` +
-            `Ваш ребёнок: ${person.firstName} ${person.lastName}\n` +
-            `Прибыл в школу: ${time}` +
-            (isLate ? `\nОпоздание: ${lateMinutes} мин` : '') +
-            `\n\nАдминистрация школы.`;
-
+            `Hurmatli ${parent.firstName} ${parent.lastName}!\n\n` +
+            `${person.firstName} ${person.lastName}\n` +
+            `Maktabga keldi: ${time}` +
+            (isLate ? `\nKechikdi: ${lateMinutes} min` : '') +
+            `\n\nMaktab ma'muriyati`;
+  
           if (capturePhoto) {
-            await this.telegramService.sendPhotoFromBase64(
-              parent.telegramChatId,
-              capturePhoto,
-              telegramMessage,
-            );
+            await this.telegramService.sendPhotoFromBase64(parent.telegramChatId, capturePhoto, telegramMessage);
           } else {
             await this.telegramService.sendMessage(parent.telegramChatId, telegramMessage);
           }
-          this.logger.log(`📱 Check-in Telegram → ${parent.telegramChatId}`);
+          this.logger.log(`TG check-in -> ${parent.telegramChatId}`);
         }
-      } catch (error) {
-        this.logger.error(`Notification error (parent ${parent.id}):`, error.message);
+      } catch (error: any) {
+        this.logger.error(`Check-in notif error (parent ${parent.id}): ${error?.message}`);
       }
     }
   }
-
-  // ==========================================
-  // ✅ CHECK-OUT NOTIFICATION (WITH PAYMENT CHECK)
-  // ==========================================
-  private async sendCheckOutNotification(params: { person: any; attendance: any }) {
+  
+  // ======================================================
+  // CHECK-OUT NOTIFICATION
+  // ======================================================
+  private async sendCheckOutNotification(params: { person: PersonResolved; attendance: any }) {
     const { person, attendance } = params;
-
-    // ✅ TO'LOV TEKSHIRUVI
     const canSend = await this.canSendNotification(person);
-    if (!canSend.sms) {
-      this.logger.log(`🚫 Check-out notification blocked: ${canSend.reason}`);
-      return;
-    }
-
-    const checkInTime = attendance.checkInTime.toLocaleTimeString('ru-RU', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-    const checkOutTime = attendance.checkOutTime.toLocaleTimeString('ru-RU', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
+  
+    const checkInTime = attendance.checkInTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const checkOutTime = attendance.checkOutTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const date = new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  
     for (const parent of person.parents || []) {
       try {
+        // WhatsApp
+        if (parent.isWhatsappActive && parent.whatsappPhone) {
+          const waMsg =
+            `*MAKTABDAN CHIQDI*\n\n` +
+            `Hurmatli ${parent.firstName} ${parent.lastName}!\n\n` +
+            `O'quvchi: *${person.firstName} ${person.lastName}*\n` +
+            `Maktabdan chiqdi: *${checkOutTime}*\n` +
+            `Kelgan vaqt: ${checkInTime}\n` +
+            `Sana: ${date}\n\nMaktab ma'muriyati`;
+  
+          await this.wa.sendText(parent.whatsappPhone, waMsg);
+          this.logger.log(`WA check-out -> ${parent.whatsappPhone}`);
+        }
+  
         // SMS
         if (parent.phone && canSend.sms) {
           const smsMessage = this.smsService.buildCheckOutMessage({
@@ -436,39 +534,32 @@ export class AttendanceService {
             checkOutTime,
           });
           await this.smsService.sendSms(parent.phone, smsMessage);
-          this.logger.log(`📱 Check-out SMS → ${parent.phone}`);
+          this.logger.log(`SMS check-out -> ${parent.phone}`);
         }
-
+  
         // Telegram
         if (parent.isTelegramActive && parent.telegramChatId && canSend.telegram) {
-          const telegramMessage =
-            `Здравствуйте, уважаемый(ая) ${parent.firstName} ${parent.lastName}!\n\n` +
-            `Ваш ребёнок: ${person.firstName} ${person.lastName}\n` +
-            `Покинул школу: ${checkOutTime}\n` +
-            `Пришёл: ${checkInTime}\n\n` +
-            `Администрация школы.`;
-
-          await this.telegramService.sendMessage(parent.telegramChatId, telegramMessage);
-          this.logger.log(`📱 Check-out Telegram → ${parent.telegramChatId}`);
+          const msg =
+            `Hurmatli ${parent.firstName} ${parent.lastName}!\n\n` +
+            `${person.firstName} ${person.lastName}\n` +
+            `Maktabdan chiqdi: ${checkOutTime}\n` +
+            `Kelgan vaqt: ${checkInTime}\n\nMaktab ma'muriyati`;
+  
+          await this.telegramService.sendMessage(parent.telegramChatId, msg);
+          this.logger.log(`TG check-out -> ${parent.telegramChatId}`);
         }
-      } catch (error) {
-        this.logger.error(`Check-out notification error (parent ${parent.id}):`, error.message);
+      } catch (error: any) {
+        this.logger.error(`Check-out notif error (parent ${parent.id}): ${error?.message}`);
       }
     }
   }
 
-  // ==========================================
-  // ✅ ABSENT NOTIFICATION (WITH PAYMENT CHECK)
-  // ==========================================
-  private async sendAbsentNotification(params: { person: any; totalLateMinutes: number }) {
+  // ======================================================
+  // ABSENT NOTIFICATION
+  // ======================================================
+  private async sendAbsentNotification(params: { person: PersonResolved; totalLateMinutes: number }) {
     const { person, totalLateMinutes } = params;
-
-    // ✅ TO'LOV TEKSHIRUVI
     const canSend = await this.canSendNotification(person);
-    if (!canSend.sms) {
-      this.logger.log(`🚫 Absent notification blocked: ${canSend.reason}`);
-      return;
-    }
 
     const totalHours = Math.floor(totalLateMinutes / 60);
     const totalMins = totalLateMinutes % 60;
@@ -482,35 +573,83 @@ export class AttendanceService {
           `Это засчитывается как 1 день пропуска.\n\n` +
           `Администрация школы.`;
 
-        // SMS
         if (parent.phone && canSend.sms) {
           await this.smsService.sendSms(parent.phone, message);
           this.logger.log(`📱 Absent SMS → ${parent.phone}`);
         }
 
-        // Telegram
         if (parent.isTelegramActive && parent.telegramChatId && canSend.telegram) {
           await this.telegramService.sendMessage(parent.telegramChatId, message);
           this.logger.log(`📱 Absent Telegram → ${parent.telegramChatId}`);
         }
-      } catch (error) {
-        this.logger.error(`Absent notification error (parent ${parent.id}):`, error.message);
+      } catch (error: any) {
+        this.logger.error(`Absent notification error (parent ${parent.id}):`, error?.message || error);
       }
     }
   }
 
-  // ==========================================
-  // ✅ FIND PERSON BY FACE ID
-  // ==========================================
-  private async findPersonByFaceId(facePersonId: string) {
-    // 1. Check Student
+  // ======================================================
+  // PERSON RESOLVE
+  // ======================================================
+  private async resolvePerson(personKey: string): Promise<PersonResolved | null> {
+    const key = String(personKey || '').trim();
+
+    
+
+    const m = key.match(/^(STU|TCH|DIR)_(.+)$/i);
+    if (m?.[1] && m?.[2]) {
+      const prefix = m[1].toUpperCase();
+      const id = m[2];
+
+      if (prefix === 'STU') {
+        const student = await this.prisma.student.findUnique({
+          where: { id },
+          include: { school: true,
+            parents: { include: { parent: true } },
+          },
+        });
+        if (!student) return null;
+
+      return {
+        ...student,
+        type: 'STUDENT',
+        parents: student.parents.map((sp) => sp.parent).filter(Boolean),
+      } as PersonResolved;
+      }
+
+      // TCH/DIR teacher table’da turadi
+      const teacher = await this.prisma.teacher.findUnique({
+        where: { id },
+        include: { school: true },
+      });
+
+      if (!teacher) return null;
+
+      return {
+        ...teacher,
+        type: prefix === 'DIR' ? 'DIRECTOR' : 'TEACHER',
+      } as PersonResolved;
+    }
+
+    // Fallback: eski tizim facePersonId orqali qidiradi
+    return this.findPersonByFaceId(key);
+  }
+
+  private async findPersonByFaceId(facePersonId: string): Promise<PersonResolved | null> {
     const student = await this.prisma.student.findUnique({
       where: { facePersonId },
-      include: { school: true, parents: true },
+      include: { school: true,
+        parents: { include: { parent: true } },
+      },
     });
-    if (student) return { ...student, type: 'STUDENT' };
-  
-    // 2. Check Teacher (includes Director)
+    if (student) {
+      return {
+        ...student,
+        type: 'STUDENT',
+        parents: student.parents.map((sp) => sp.parent).filter(Boolean),
+      };
+    }
+
     const teacher = await this.prisma.teacher.findUnique({
       where: { facePersonId },
       include: { school: true },
@@ -521,25 +660,22 @@ export class AttendanceService {
         type: teacher.type === 'DIRECTOR' ? 'DIRECTOR' : 'TEACHER',
       };
     }
-  
+
     return null;
   }
 
-  // ==========================================
-  // ✅ NEW: GET TODAY ATTENDANCE (WITH CACHE)
-  // ==========================================
+  // ======================================================
+  // TODAY ATTENDANCE (CACHE)
+  // ======================================================
   async getTodayAttendance(schoolId: string, classId?: string) {
-    // 1. Cache key
     const cacheKey = `attendance:today:${schoolId}:${classId || 'all'}`;
 
-    // 2. Try cache first
     const cached = await this.redis.getCache(cacheKey);
     if (cached) {
       this.logger.log(`📦 Cache HIT: ${cacheKey}`);
       return cached;
     }
 
-    // 3. Cache MISS - fetch from DB
     this.logger.log(`🔍 Cache MISS: ${cacheKey}`);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -555,78 +691,71 @@ export class AttendanceService {
       orderBy: { checkInTime: 'asc' },
     });
 
-    // 4. Save to cache (5 minutes)
     await this.redis.setCache(cacheKey, data, 300);
-
     return data;
   }
 
-  // ==========================================
-  // ✅ NEW: GET TODAY STATS (FAST)
-  // ==========================================
+  // ======================================================
+  // TODAY STATS
+  // ======================================================
   async getTodayStats(schoolId: string) {
-    const cacheKey = `stats:today:${schoolId}`;
-
-    // Try cache (short TTL - 30 seconds for real-time feel)
-    const cached = await this.redis.getCache(cacheKey);
-    if (cached) {
-      return cached;
-    }
-
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const [totalStudents, presentCount, lateCount] = await Promise.all([
+    const [totalStudents, totalTeachers, presentStudents, presentTeachers] = await Promise.all([
       this.prisma.student.count({ where: { schoolId } }),
+      this.prisma.teacher.count({ where: { schoolId } }),
+
       this.prisma.attendance.count({
         where: {
           schoolId,
+          studentId: { not: null },
           date: { gte: today, lt: tomorrow },
           status: { in: ['PRESENT', 'LATE'] },
         },
       }),
+
       this.prisma.attendance.count({
         where: {
           schoolId,
+          teacherId: { not: null },
           date: { gte: today, lt: tomorrow },
-          status: 'LATE',
+          status: { in: ['PRESENT', 'LATE'] },
         },
       }),
     ]);
 
-    const stats = {
-      totalStudents,
-      presentCount,
-      lateCount,
-      absentCount: totalStudents - presentCount,
-      attendanceRate: totalStudents > 0 ? ((presentCount / totalStudents) * 100).toFixed(1) : '0',
+    return {
+      counts: { totalStudents, totalTeachers },
+      todayAttendance: {
+        students: {
+          present: presentStudents,
+          absent: totalStudents - presentStudents,
+          rate: totalStudents > 0 ? ((presentStudents / totalStudents) * 100).toFixed(1) : '0',
+        },
+        teachers: {
+          present: presentTeachers,
+          absent: totalTeachers - presentTeachers,
+          rate: totalTeachers > 0 ? ((presentTeachers / totalTeachers) * 100).toFixed(1) : '0',
+        },
+      },
     };
-
-    // Cache for 30 seconds
-    await this.redis.setCache(cacheKey, stats, 30);
-
-    return stats;
   }
 
-  // ==========================================
-  // ✅ NEW: GET TOP STUDENTS (LEADERBOARD)
-  // ==========================================
+  // ======================================================
+  // TOP STUDENTS (LEADERBOARD)
+  // ======================================================
   async getTopStudents(schoolId: string, limit: number = 10) {
     const cacheKey = `leaderboard:top:${schoolId}:${limit}`;
-
-    // Try cache (5 minutes)
     const cached = await this.redis.getCache(cacheKey);
-    if (cached) {
-      return cached;
-    }
+    if (cached) return cached;
 
-    // Get from Redis leaderboard
     const topStudents = await this.redis.getTopAttendanceStudents(schoolId, limit);
-
-    // Fetch student details
     const studentIds = topStudents.map((s) => s.studentId);
+
     const students = await this.prisma.student.findMany({
       where: { id: { in: studentIds } },
       select: {
@@ -637,7 +766,6 @@ export class AttendanceService {
       },
     });
 
-    // Merge data
     const result = topStudents.map((top) => {
       const student = students.find((s) => s.id === top.studentId);
       return {
@@ -648,46 +776,43 @@ export class AttendanceService {
       };
     });
 
-    // Cache for 5 minutes
     await this.redis.setCache(cacheKey, result, 300);
-
     return result;
   }
 
-  // ==========================================
-  // EXISTING CRUD METHODS
-  // ==========================================
+  // ======================================================
+  // CRUD
+  // ======================================================
   async create(createAttendanceDto: CreateAttendanceDto) {
     const attendance = await this.prisma.attendance.create({
       data: {
         status: createAttendanceDto.status,
         date: new Date(createAttendanceDto.date),
-        teacher: createAttendanceDto.teacherId
-          ? { connect: { id: createAttendanceDto.teacherId } }
-          : undefined,
-        student: createAttendanceDto.studentId
-          ? { connect: { id: createAttendanceDto.studentId } }
-          : undefined,
+        teacher: createAttendanceDto.teacherId ? { connect: { id: createAttendanceDto.teacherId } } : undefined,
+        student: createAttendanceDto.studentId ? { connect: { id: createAttendanceDto.studentId } } : undefined,
         school: { connect: { id: createAttendanceDto.schoolId } },
       },
     });
 
     await this.invalidateDashboardCache(createAttendanceDto.schoolId);
-
     return attendance;
   }
 
-  async findAll(schoolId?: string, date?: string, studentId?: string, classId?: string) {
+  async findAll(schoolId?: string, date?: string, studentId?: string, teacherId?: string, classId?: string) {
     const where: any = {};
     if (schoolId) where.schoolId = schoolId;
     if (studentId) where.studentId = studentId;
+    if (teacherId) where.teacherId = teacherId;
+
     if (date) {
       const d = new Date(date);
-      where.date = {
-        gte: new Date(d.setHours(0, 0, 0, 0)),
-        lt: new Date(d.setHours(23, 59, 59, 999)),
-      };
+      const start = new Date(d);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(d);
+      end.setHours(23, 59, 59, 999);
+      where.date = { gte: start, lte: end };
     }
+
     if (classId) where.student = { classId };
 
     return this.prisma.attendance.findMany({
@@ -714,15 +839,11 @@ export class AttendanceService {
     });
 
     await this.invalidateDashboardCache(updated.schoolId);
-
     return updated;
   }
 
   async remove(id: string) {
-    const record = await this.prisma.attendance.findUnique({
-      where: { id },
-    });
-
+    const record = await this.prisma.attendance.findUnique({ where: { id } });
     await this.prisma.attendance.delete({ where: { id } });
 
     if (record?.schoolId) {

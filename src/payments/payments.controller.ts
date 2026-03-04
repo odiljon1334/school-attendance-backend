@@ -10,13 +10,20 @@ import {
   HttpCode,
   HttpStatus,
   Query,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { PaymentsService } from './payments.service';
-import { CreatePaymentDto, UpdatePaymentDto, PaymentReportDto } from './dto/payment.dto';
+import {
+  CreatePaymentDto,
+  UpdatePaymentDto,
+  PaymentReportDto,
+  WaivePaymentDto,
+} from './dto/payment.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
+import { BillingPlan, PaymentStatus, UserRole } from '@prisma/client';
 
 @Controller('payments')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -31,13 +38,15 @@ export class PaymentsController {
   }
 
   @Get()
-  findAll(
+  async findAll(
     @Query('schoolId') schoolId?: string,
     @Query('studentId') studentId?: string,
     @Query('classId') classId?: string,
-    @Query('status') status?: string,
+    @Query('status') status?: PaymentStatus,
+    @Query('plan') plan?: BillingPlan,
+    @Query('periodKey') periodKey?: string,
   ) {
-    return this.paymentsService.findAll(schoolId, studentId, classId, status);
+    return this.paymentsService.findAll({ schoolId, studentId, classId, status, plan, periodKey });
   }
 
   @Get('unpaid/:schoolId')
@@ -45,13 +54,35 @@ export class PaymentsController {
     return this.paymentsService.getUnpaidStudents(schoolId);
   }
 
-  @Post('report')
+  @Post('report/json')
   generateReport(@Body() reportDto: PaymentReportDto) {
     return this.paymentsService.generateReport(reportDto);
   }
 
+  @Post('report')
+  async reportXlsx(
+    @Body() dto: { schoolId: string; startDate?: string; endDate?: string },
+    @Res() res: Response,
+  ) {
+    const buffer = await this.paymentsService.buildExcelReport(dto);
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="payments_${Date.now()}.xlsx"`);
+
+    return res.send(Buffer.from(buffer as any));
+  }
+
   @Get(':id')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR, UserRole.PARENT)
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.DISTRICT_ADMIN,
+    UserRole.SCHOOL_ADMIN,
+    UserRole.DIRECTOR,
+    UserRole.PARENT,
+  )
   findOne(@Param('id') id: string) {
     return this.paymentsService.findOne(id);
   }
@@ -59,6 +90,11 @@ export class PaymentsController {
   @Post(':id/mark-paid')
   markAsPaid(@Param('id') id: string) {
     return this.paymentsService.markAsPaid(id);
+  }
+
+  @Post(':id/waive')
+  waive(@Param('id') id: string, @Body() dto: WaivePaymentDto) {
+    return this.paymentsService.waive(id, dto);
   }
 
   @Patch(':id')

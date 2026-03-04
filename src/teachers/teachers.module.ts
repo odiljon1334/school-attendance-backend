@@ -1,11 +1,14 @@
 import { Module } from '@nestjs/common';
-import { TeachersService } from './teachers.service';
 import { TeachersController } from './teachers.controller';
+import { TeachersService } from './teachers.service';
 import { PrismaModule } from '../prisma/prisma.module';
-import { AuthModule } from '../auth/auth.module';
+import { TurnstileModule } from '../turnstile/turnstile.module'; // ✅ ADDED
 
 @Module({
-  imports: [PrismaModule, AuthModule],
+  imports: [
+    PrismaModule,
+    TurnstileModule,
+  ],
   controllers: [TeachersController],
   providers: [TeachersService],
   exports: [TeachersService],

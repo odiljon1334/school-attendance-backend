@@ -11,10 +11,22 @@ CREATE TYPE "Gender" AS ENUM ('MALE', 'FEMALE');
 CREATE TYPE "AttendanceStatus" AS ENUM ('PRESENT', 'LATE', 'ABSENT', 'LEAVE', 'HOLIDAY');
 
 -- CreateEnum
-CREATE TYPE "PaymentStatus" AS ENUM ('PENDING', 'PAID', 'OVERDUE');
+CREATE TYPE "BillingPlan" AS ENUM ('MONTHLY', 'YEARLY');
+
+-- CreateEnum
+CREATE TYPE "PaymentStatus" AS ENUM ('PENDING', 'PAID', 'OVERDUE', 'WAIVED');
+
+-- CreateEnum
+CREATE TYPE "PaymentWaiveReason" AS ENUM ('LOW_INCOME', 'SIBLING_DISCOUNT', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "ParentRelation" AS ENUM ('FATHER', 'MOTHER', 'PARENT');
 
 -- CreateEnum
 CREATE TYPE "TeacherType" AS ENUM ('TEACHER', 'DIRECTOR');
+
+-- CreateEnum
+CREATE TYPE "TurnstilePersonType" AS ENUM ('STUDENT', 'TEACHER');
 
 -- CreateTable
 CREATE TABLE "User" (
@@ -91,14 +103,28 @@ CREATE TABLE "Student" (
     "photo" TEXT,
     "facePersonId" TEXT,
     "enrollNumber" TEXT,
+    "importKey" TEXT,
     "isSmsEnabled" BOOLEAN NOT NULL DEFAULT true,
     "smsPaidUntil" TIMESTAMP(3),
     "smsPaymentType" TEXT,
     "smsReminderSent" BOOLEAN NOT NULL DEFAULT false,
+    "isLowIncome" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Student_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "StudentParent" (
+    "studentId" TEXT NOT NULL,
+    "parentId" TEXT NOT NULL,
+    "notifySms" BOOLEAN NOT NULL DEFAULT false,
+    "isBillingPayer" BOOLEAN NOT NULL DEFAULT false,
+    "relationship" "ParentRelation" NOT NULL DEFAULT 'PARENT',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "StudentParent_pkey" PRIMARY KEY ("studentId","parentId")
 );
 
 -- CreateTable
@@ -206,15 +232,13 @@ CREATE TABLE "teacher_payrolls" (
 CREATE TABLE "Parent" (
     "id" TEXT NOT NULL,
     "userId" TEXT,
-    "studentId" TEXT NOT NULL,
-    "firstName" TEXT NOT NULL,
-    "lastName" TEXT NOT NULL,
+    "firstName" TEXT,
+    "lastName" TEXT,
     "phone" TEXT NOT NULL,
     "telegramId" TEXT,
     "telegramUsername" TEXT,
     "telegramChatId" TEXT,
     "isTelegramActive" BOOLEAN NOT NULL DEFAULT false,
-    "relationship" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -245,12 +269,16 @@ CREATE TABLE "Attendance" (
 CREATE TABLE "Payment" (
     "id" TEXT NOT NULL,
     "studentId" TEXT NOT NULL,
-    "amount" DOUBLE PRECISION NOT NULL,
+    "plan" "BillingPlan" NOT NULL,
+    "amount" INTEGER NOT NULL,
+    "periodKey" TEXT NOT NULL,
     "dueDate" TIMESTAMP(3) NOT NULL,
     "paidDate" TIMESTAMP(3),
     "status" "PaymentStatus" NOT NULL DEFAULT 'PENDING',
-    "month" TEXT NOT NULL,
-    "academicYear" TEXT NOT NULL,
+    "waiveReason" "PaymentWaiveReason",
+    "waivedAt" TIMESTAMP(3),
+    "notifiedAt" TIMESTAMP(3),
+    "notifyCount" INTEGER NOT NULL DEFAULT 0,
     "notes" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -318,6 +346,32 @@ CREATE TABLE "HikvisionDevice" (
     CONSTRAINT "HikvisionDevice_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "TurnstileIdentity" (
+    "id" TEXT NOT NULL,
+    "employeeNo" TEXT NOT NULL,
+    "deviceId" TEXT NOT NULL,
+    "personType" "TurnstilePersonType" NOT NULL,
+    "studentId" TEXT,
+    "teacherId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "TurnstileIdentity_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "EnrollCounter" (
+    "id" TEXT NOT NULL,
+    "schoolId" TEXT NOT NULL,
+    "studentSeq" INTEGER NOT NULL DEFAULT 0,
+    "staffSeq" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "EnrollCounter_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
 
@@ -349,7 +403,7 @@ CREATE UNIQUE INDEX "Student_facePersonId_key" ON "Student"("facePersonId");
 CREATE UNIQUE INDEX "Student_enrollNumber_key" ON "Student"("enrollNumber");
 
 -- CreateIndex
-CREATE INDEX "Student_schoolId_idx" ON "Student"("schoolId");
+CREATE UNIQUE INDEX "Student_importKey_key" ON "Student"("importKey");
 
 -- CreateIndex
 CREATE INDEX "Student_classId_idx" ON "Student"("classId");
@@ -361,13 +415,25 @@ CREATE INDEX "Student_isSmsEnabled_idx" ON "Student"("isSmsEnabled");
 CREATE INDEX "Student_smsPaidUntil_idx" ON "Student"("smsPaidUntil");
 
 -- CreateIndex
+CREATE INDEX "Student_isLowIncome_idx" ON "Student"("isLowIncome");
+
+-- CreateIndex
+CREATE INDEX "StudentParent_parentId_idx" ON "StudentParent"("parentId");
+
+-- CreateIndex
+CREATE INDEX "StudentParent_studentId_idx" ON "StudentParent"("studentId");
+
+-- CreateIndex
+CREATE INDEX "StudentParent_isBillingPayer_idx" ON "StudentParent"("isBillingPayer");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Teacher_userId_key" ON "Teacher"("userId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Teacher_facePersonId_key" ON "Teacher"("facePersonId");
 
 -- CreateIndex
-CREATE INDEX "Teacher_schoolId_idx" ON "Teacher"("schoolId");
+CREATE UNIQUE INDEX "Teacher_enrollNumber_key" ON "Teacher"("enrollNumber");
 
 -- CreateIndex
 CREATE INDEX "Teacher_facePersonId_idx" ON "Teacher"("facePersonId");
@@ -421,7 +487,10 @@ CREATE INDEX "Payment_studentId_idx" ON "Payment"("studentId");
 CREATE INDEX "Payment_status_idx" ON "Payment"("status");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Payment_studentId_month_key" ON "Payment"("studentId", "month");
+CREATE INDEX "Payment_plan_periodKey_idx" ON "Payment"("plan", "periodKey");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Payment_studentId_plan_periodKey_key" ON "Payment"("studentId", "plan", "periodKey");
 
 -- CreateIndex
 CREATE INDEX "Notification_recipientId_isSent_idx" ON "Notification"("recipientId", "isSent");
@@ -447,6 +516,30 @@ CREATE UNIQUE INDEX "HikvisionDevice_deviceId_key" ON "HikvisionDevice"("deviceI
 -- CreateIndex
 CREATE INDEX "HikvisionDevice_schoolId_idx" ON "HikvisionDevice"("schoolId");
 
+-- CreateIndex
+CREATE INDEX "TurnstileIdentity_deviceId_idx" ON "TurnstileIdentity"("deviceId");
+
+-- CreateIndex
+CREATE INDEX "TurnstileIdentity_personType_idx" ON "TurnstileIdentity"("personType");
+
+-- CreateIndex
+CREATE INDEX "TurnstileIdentity_studentId_idx" ON "TurnstileIdentity"("studentId");
+
+-- CreateIndex
+CREATE INDEX "TurnstileIdentity_teacherId_idx" ON "TurnstileIdentity"("teacherId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TurnstileIdentity_deviceId_employeeNo_key" ON "TurnstileIdentity"("deviceId", "employeeNo");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TurnstileIdentity_deviceId_studentId_key" ON "TurnstileIdentity"("deviceId", "studentId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TurnstileIdentity_deviceId_teacherId_key" ON "TurnstileIdentity"("deviceId", "teacherId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "EnrollCounter_schoolId_key" ON "EnrollCounter"("schoolId");
+
 -- AddForeignKey
 ALTER TABLE "School" ADD CONSTRAINT "School_districtId_fkey" FOREIGN KEY ("districtId") REFERENCES "District"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
@@ -461,6 +554,12 @@ ALTER TABLE "Student" ADD CONSTRAINT "Student_schoolId_fkey" FOREIGN KEY ("schoo
 
 -- AddForeignKey
 ALTER TABLE "Student" ADD CONSTRAINT "Student_classId_fkey" FOREIGN KEY ("classId") REFERENCES "Class"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StudentParent" ADD CONSTRAINT "StudentParent_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StudentParent" ADD CONSTRAINT "StudentParent_parentId_fkey" FOREIGN KEY ("parentId") REFERENCES "Parent"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Teacher" ADD CONSTRAINT "Teacher_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -487,9 +586,6 @@ ALTER TABLE "teacher_payrolls" ADD CONSTRAINT "teacher_payrolls_teacherId_fkey" 
 ALTER TABLE "Parent" ADD CONSTRAINT "Parent_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Parent" ADD CONSTRAINT "Parent_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "Attendance" ADD CONSTRAINT "Attendance_schoolId_fkey" FOREIGN KEY ("schoolId") REFERENCES "School"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -503,3 +599,15 @@ ALTER TABLE "Payment" ADD CONSTRAINT "Payment_studentId_fkey" FOREIGN KEY ("stud
 
 -- AddForeignKey
 ALTER TABLE "HikvisionDevice" ADD CONSTRAINT "HikvisionDevice_schoolId_fkey" FOREIGN KEY ("schoolId") REFERENCES "School"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TurnstileIdentity" ADD CONSTRAINT "TurnstileIdentity_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "HikvisionDevice"("deviceId") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TurnstileIdentity" ADD CONSTRAINT "TurnstileIdentity_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TurnstileIdentity" ADD CONSTRAINT "TurnstileIdentity_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "EnrollCounter" ADD CONSTRAINT "EnrollCounter_schoolId_fkey" FOREIGN KEY ("schoolId") REFERENCES "School"("id") ON DELETE CASCADE ON UPDATE CASCADE;

@@ -1,5 +1,3 @@
-// src/notifications/sms.service.ts - WITH REDIS RATE LIMITING
-
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../redis/redis.service';
@@ -53,15 +51,15 @@ export class SmsService {
   // ==========================================
   // ✅ MAIN: Send SMS (with Rate Limiting)
   // ==========================================
-  async sendSms(phoneNumber: string, message: string): Promise<boolean> {
-    // ✅ 1. Rate limit tekshiruvi (Redis)
-    const rateLimit = await this.redis.checkSmsRateLimit(phoneNumber, 3); // Max 3 per minute
-
+  async sendSms(phoneNumber: string, message: string, opts?: { type?: string; limitPerMin?: number }): Promise<boolean> {
+    const type = opts?.type ?? 'GENERIC';
+    const limit = opts?.limitPerMin ?? 3;
+  
+    const rateLimit = await this.redis.checkSmsRateLimit(phoneNumber, limit, type); // <-- type qo‘shildi
+  
     if (!rateLimit.allowed) {
       this.logger.warn(
-        `⚠️ Rate limit exceeded for ${phoneNumber}. ` +
-        `Remaining: ${rateLimit.remaining}. ` +
-        `Resets in ${rateLimit.resetIn}s.`
+        `⚠️ Rate limit exceeded for ${phoneNumber} type=${type}. Remaining: ${rateLimit.remaining}. Resets in ${rateLimit.resetIn}s.`,
       );
       return false;
     }

@@ -1,101 +1,134 @@
 import {
-  IsString,
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsInt,
   IsNotEmpty,
   IsOptional,
-  IsEnum,
-  IsNumber,
+  IsString,
+  IsUUID,
   Min,
-  IsDateString,
 } from 'class-validator';
-import { PaymentStatus } from '@prisma/client';
+import { BillingPlan, PaymentStatus, PaymentWaiveReason } from '@prisma/client';
 
 export class CreatePaymentDto {
-  @IsString()
-  @IsNotEmpty()
+  @IsUUID()
   studentId: string;
 
-  @IsNumber()
+  // NEW: MONTHLY / YEARLY
+  @IsEnum(BillingPlan)
+  plan: BillingPlan;
+
+  @IsString()
+  @IsNotEmpty()
+  periodKey: string;
+
+  // NEW: integer sums
+  @IsInt()
   @Min(0)
   amount: number;
 
-  @IsString()
-  @IsNotEmpty()
-  month: string; // Masalan: "October" yoki "2024-10"
-
-  @IsString()
-  @IsNotEmpty()
-  academicYear: string; // Masalan: "2024-2025"
-
   @IsDateString()
-  @IsOptional()
-  dueDate?: string; // Servisda default qiymat beriladi agar kelmasa
+  dueDate: string;
 
+  @IsOptional()
   @IsDateString()
-  @IsOptional()
-  paymentDate?: string; // Sxemadagi paidDate uchun
+  paidDate?: string;
 
+  @IsOptional()
   @IsEnum(PaymentStatus)
-  @IsOptional()
   status?: PaymentStatus;
 
-  @IsString()
   @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class WaivePaymentDto {
+  @IsEnum(PaymentWaiveReason)
+  reason: PaymentWaiveReason;
+
+  @IsOptional()
+  @IsString()
   notes?: string;
 }
 
 export class UpdatePaymentDto {
-  @IsNumber()
-  @Min(0)
   @IsOptional()
+  @IsEnum(BillingPlan)
+  plan?: BillingPlan;
+
+  @IsOptional()
+  @IsString()
+  periodKey?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
   amount?: number;
 
-  @IsEnum(PaymentStatus)
   @IsOptional()
-  status?: PaymentStatus;
-
-  @IsString()
-  @IsOptional()
-  month?: string; // Oyni o'zgartirish imkoniyati qo'shildi
-
-  @IsString()
-  @IsOptional()
-  academicYear?: string; // O'quv yilini o'zgartirish imkoniyati qo'shildi
-
   @IsDateString()
-  @IsOptional()
-  paymentDate?: string;
-
-  @IsDateString()
-  @IsOptional()
   dueDate?: string;
 
-  @IsString()
   @IsOptional()
-  notes?: string;
+  @IsDateString()
+  paidDate?: string | null;
+
+  @IsOptional()
+  @IsEnum(PaymentStatus)
+  status?: PaymentStatus;
+
+  @IsOptional()
+  @IsEnum(PaymentWaiveReason)
+  waiveReason?: PaymentWaiveReason | null;
+
+  @IsOptional()
+  @IsDateString()
+  waivedAt?: string | null;
+
+  @IsOptional()
+  @IsString()
+  notes?: string | null;
 }
 
+// Report DTO — o'zgarish shart emas, lekin status/filter qoladi
 export class PaymentReportDto {
   @IsString()
   @IsNotEmpty()
   schoolId: string;
 
-  @IsDateString()
-  @IsNotEmpty() // Hisobot uchun odatda oraliq shart
-  startDate: string;
-
-  @IsDateString()
-  @IsNotEmpty()
-  endDate: string;
-
-  @IsString()
   @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+
+  @IsOptional()
+  @IsString()
   classId?: string;
 
-  @IsString()
   @IsOptional()
+  @IsString()
   studentId?: string;
 
-  @IsEnum(PaymentStatus)
   @IsOptional()
+  @IsEnum(PaymentStatus)
   status?: PaymentStatus;
+
+  // NEW filters (optional)
+  @IsOptional()
+  @IsEnum(BillingPlan)
+  plan?: BillingPlan;
+
+  @IsOptional()
+  @IsString()
+  periodKey?: string;
+
+  // optional: waived only
+  @IsOptional()
+  @IsBoolean()
+  waivedOnly?: boolean;
 }

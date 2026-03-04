@@ -47,20 +47,51 @@ export class ClassesService {
     if (schoolId) where.schoolId = schoolId;
     if (academicYear) where.academicYear = academicYear;
   
-    return this.prisma.class.findMany({
+    const classes = await this.prisma.class.findMany({
       where,
       include: {
         school: true,
         _count: { select: { students: true } },
-        // ✅ QO'SHILDI: Sinf rahbarini frontendda chiqarish uchun
-        teacherClasses: {
-          include: {
-            teacher: true
-          }
-        }
+        teacherClasses: { include: { teacher: true } },
+        students: { select: { id: true } }, // ← faqat id lar
       },
       orderBy: [{ grade: 'asc' }, { section: 'asc' }],
     });
+  
+    // Bugungi attendance stats
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+  
+    return Promise.all(
+      classes.map(async (cls) => {
+        const studentIds = cls.students.map((s) => s.id);
+  
+        const attendances = studentIds.length > 0
+          ? await this.prisma.attendance.findMany({
+              where: {
+                studentId: { in: studentIds },
+                date: { gte: today, lt: tomorrow },
+              },
+              select: { studentId: true, status: true },
+            })
+          : [];
+  
+        const present = attendances.filter(
+          (a) => a.status === 'PRESENT' || a.status === 'LATE'
+        ).length;
+        const total = cls._count.students;
+        const absent = total - present;
+        const rate = total > 0 ? ((present / total) * 100).toFixed(1) : '0';
+  
+        const { students, ...classWithoutStudents } = cls;
+  
+        return {
+          ...classWithoutStudents,
+          attendanceStats: { present, absent, rate },
+        };
+      })
+    );
   }
 
   async findOne(id: string) {

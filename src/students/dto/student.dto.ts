@@ -1,6 +1,38 @@
-import { IsString, IsEmail, IsOptional, IsEnum, IsBoolean, MinLength, IsDateString } from 'class-validator';
-import { Gender } from '@prisma/client';
-import { CreateParentDto } from 'src/parents/dto/parent.dto';
+import { 
+  IsString, 
+  IsEmail, 
+  IsOptional, 
+  IsEnum, 
+  IsBoolean, 
+  IsDateString, 
+  ValidateNested, 
+  IsNotEmpty
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { Gender, ParentRelation } from '@prisma/client';
+
+class ParentDto {
+  @IsString()
+  @IsNotEmpty()
+  phone: string;
+
+  @IsString()
+  @IsOptional()
+  firstName?: string;
+
+  @IsString()
+  @IsOptional()
+  lastName?: string;
+
+  @IsEnum(ParentRelation)
+  @IsOptional()
+  relationship?: ParentRelation;
+
+  @IsString()
+  @IsOptional()
+  telegramId?: string;
+}
+
 
 export class CreateStudentDto {
   @IsEmail()
@@ -40,11 +72,16 @@ export class CreateStudentDto {
 
   @IsString()
   @IsOptional()
+  facePersonId?: string;
+
+  @IsString()
+  @IsOptional()
   enrollNumber?: string
 
   @IsOptional()
-  @IsString()
-  parent?: CreateParentDto;
+  @ValidateNested()
+  @Type(() => ParentDto)
+  parent?: ParentDto;
 
   @IsString()
   @IsOptional()
@@ -92,6 +129,15 @@ export class UpdateStudentDto {
   @IsString()
   @IsOptional()
   photo?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ParentDto)
+  parent?: ParentDto;
+  
+  @IsString()
+  @IsOptional()
+  facePersonId?: string;
 
   @IsString()
   @IsOptional()

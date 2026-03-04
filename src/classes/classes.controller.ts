@@ -16,19 +16,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@prisma/client';
-
-export class CreateClassDto {
-  schoolId: string;
-  grade: number;
-  section: string;
-  academicYear: string;
-}
-
-export class UpdateClassDto {
-  grade?: number;
-  section?: string;
-  academicYear?: string;
-}
+import { CreateClassDto, UpdateClassDto } from './dto/class.dto';
 
 @Controller('classes')
 @UseGuards(JwtAuthGuard, RolesGuard)

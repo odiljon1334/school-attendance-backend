@@ -1,9 +1,7 @@
-// src/schools/schools.service.ts - FIXED (Password hash + remove from response)
-
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSchoolDto, UpdateSchoolDto } from './dto/school.dto';
-import * as bcrypt from 'bcrypt'; // ← CRITICAL: Import bcrypt
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class SchoolsService {
@@ -20,15 +18,14 @@ export class SchoolsService {
     }
 
     // Check username uniqueness
-    if (createSchoolDto.username) {
-      const existingUsername = await this.prisma.school.findUnique({
-        where: { username: createSchoolDto.username },
-      });
-
-      if (existingUsername) {
-        throw new ConflictException(`Username ${createSchoolDto.username} already exists`);
-      }
+    // username uniqueness
+    const existingUsername = await this.prisma.school.findUnique({
+      where: { username: createSchoolDto.username },
+    });
+    if (existingUsername) {
+      throw new ConflictException(`Username ${createSchoolDto.username} already exists`);
     }
+    
 
     // ✅ CRITICAL: Hash password
     const dataToCreate: any = { ...createSchoolDto };
@@ -66,7 +63,6 @@ export class SchoolsService {
         phone: true,
         email: true,
         username: true,
-        // ❌ password: NOT included
         createdAt: true,
         updatedAt: true,
         district: true,

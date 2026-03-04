@@ -51,6 +51,15 @@ export class CreateTeacherDto {
 
   @IsString()
   @IsOptional()
+  telegramUsername?: string;
+
+  @IsString()
+  @IsOptional()
+  telegramChatId?: string;
+
+
+  @IsString()
+  @IsOptional()
   enrollNumber?: string;
 
   @IsArray()
@@ -60,10 +69,13 @@ export class CreateTeacherDto {
 }
 
 export class UpdateTeacherDto {
-  // ✅ Type: TEACHER yoki DIRECTOR
+
   @IsEnum(TeacherRole)
   @IsOptional()
   type?: TeacherRole;
+
+  @IsString()
+  schoolId: string;
 
   @IsString()
   @IsOptional()

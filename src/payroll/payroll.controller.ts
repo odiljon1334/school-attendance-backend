@@ -28,9 +28,12 @@ export class PayrollController {
       hourlyRate: number;
     },
   ) {
+    console.log('BODY:', JSON.stringify(scheduleData));
+    console.log('teacherId:', teacherId);
     return this.payrollService.setTeacherSchedule(teacherId, scheduleData);
   }
 
+  
   @Get('schedule/:teacherId')
   async getSchedule(@Param('teacherId') teacherId: string) {
     return this.payrollService.getTeacherSchedule(teacherId);

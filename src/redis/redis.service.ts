@@ -120,13 +120,14 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   // ==========================================
   async checkSmsRateLimit(
     phone: string,
-    maxPerMinute: number = 3,
+    maxPerMinute: number,
+    type: string,
   ): Promise<{
     allowed: boolean;
     remaining: number;
     resetIn: number;
   }> {
-    const key = `sms:limit:${phone}`;
+    const key = `sms:limit:${type}:${phone}`;
     const count = await this.client.incr(key);
 
     if (count === 1) {

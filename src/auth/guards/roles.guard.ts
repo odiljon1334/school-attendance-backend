@@ -11,26 +11,26 @@ export class RolesGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-
-    if (!requiredRoles) {
-      return true; // No roles required, allow access
-    }
-
+  
+    if (!requiredRoles) return true;
+  
     const request = context.switchToHttp().getRequest();
     const user = request.user;
-
+  
     if (!user) {
       throw new ForbiddenException('User not authenticated');
     }
-
-    const hasRole = requiredRoles.includes(user.role);
-
-    if (!hasRole) {
-      throw new ForbiddenException(
-        `Access denied. Required roles: ${requiredRoles.join(', ')}`,
-      );
+  
+    // ✅ SCHOOL token — role yo'q, lekin o'z schoolId ga kirishi mumkin
+    if (user.type === 'SCHOOL') {
+      return true; // SchoolAccessGuard alohida tekshiradi
     }
-
+  
+    const hasRole = requiredRoles.includes(user.role);
+    if (!hasRole) {
+      throw new ForbiddenException(`Access denied. Required roles: ${requiredRoles.join(', ')}`);
+    }
+  
     return true;
   }
 }

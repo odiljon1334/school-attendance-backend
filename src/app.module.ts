@@ -21,6 +21,9 @@ import { TurnstileModule } from './turnstile/turnstile.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { RedisModule } from './redis/redis.module';
 import { CsvImportModule } from './csv-import/csv-import.module';
+import { BillingModule } from './billing/billing.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -31,6 +34,8 @@ import { CsvImportModule } from './csv-import/csv-import.module';
     PrismaModule,
     AuthModule,
     DistrictsModule,
+    ScheduleModule.forRoot(),
+    BillingModule,
     SchoolsModule,
     ClassesModule,
     StudentsModule,
@@ -43,6 +48,7 @@ import { CsvImportModule } from './csv-import/csv-import.module';
     HikvisionModule,
     UsersModule,
     EnrollPicModule,
+    WhatsappModule,
     TurnstileModule,
     ClassesModule,
     PayrollModule,

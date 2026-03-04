@@ -1,9 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TurnstileService } from '../turnstile/turnstile.service';
 import { CreateStudentDto } from './dto/student.dto';
 import { UpdateStudentDto } from './dto/student.dto';
 import * as bcrypt from 'bcrypt';
+
+function pad(num: number, size: number) {
+  return String(num).padStart(size, '0');
+}
+
+function buildEnroll(prefix: '20', year: number, seq: number) {
+  return `${prefix}${year}${pad(seq, 3)}`;
+}
 
 @Injectable()
 export class StudentsService {
@@ -12,111 +20,153 @@ export class StudentsService {
     private turnstileService: TurnstileService,
   ) {}
 
-  async create(createStudentDto: CreateStudentDto) {
-    // Optional: Create user account (only if needed for login)
-    let userId = null;
-    
-    // Students don't need user accounts by default (face recognition only)
-    // But we can create one for future use
-    if (createStudentDto.email) {
-      const user = await this.prisma.user.create({
-        data: {
-          username: `student_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-          password: await bcrypt.hash('default123', 10), // Default password
-          email: createStudentDto.email,
-          role: 'STUDENT',
-          status: 'ACTIVE',
-        },
-      });
-      userId = user.id;
-    }
+  private async nextStudentEnrollNumber(tx: PrismaService, schoolId: string) {
+    const year = new Date().getFullYear();
 
-    // Convert dateOfBirth to Date object
-    const dateOfBirth = createStudentDto.dateOfBirth 
-      ? new Date(createStudentDto.dateOfBirth) 
-      : undefined;
-
-    // Create student
-    const student = await this.prisma.student.create({
-      data: {
-        userId,
-        schoolId: createStudentDto.schoolId,
-        classId: createStudentDto.classId,
-        firstName: createStudentDto.firstName,
-        lastName: createStudentDto.lastName,
-        middleName: createStudentDto.middleName,
-        dateOfBirth: dateOfBirth,
-        gender: createStudentDto.gender,
-        phone: createStudentDto.phone,
-        telegramId: createStudentDto.telegramId,
-        photo: createStudentDto.photo,
-        enrollNumber: createStudentDto.enrollNumber,
-      },
-      include: {
-        user: true,
-        school: true,
-        class: true,
-      },
+    const counter = await tx.enrollCounter.upsert({
+      where: { schoolId },
+      create: { schoolId, studentSeq: 1, staffSeq: 0 },
+      update: { studentSeq: { increment: 1 } },
+      select: { studentSeq: true },
     });
 
-    // Create parent if provided
-    if (createStudentDto.parent) {
-      await this.prisma.parent.create({
+    return buildEnroll('20', year, counter.studentSeq);
+  }
+
+  private cleanStr(v: any): string | null {
+    if (v === null || v === undefined) return null;
+    const s = String(v).trim();
+    return s.length ? s : null;
+  }
+
+  private async ensureUniqueEnrollNumber(tx: any, enrollNumber: string, selfStudentId?: string) {
+    const [studentDup, teacherDup] = await Promise.all([
+      tx.student.findFirst({ where: { enrollNumber }, select: { id: true } }),
+      tx.teacher.findFirst({ where: { enrollNumber }, select: { id: true } }),
+    ]);
+  
+    if (teacherDup) throw new BadRequestException(`enrollNumber already exists: ${enrollNumber}`);
+    if (studentDup && studentDup.id !== selfStudentId)
+      throw new BadRequestException(`enrollNumber already exists: ${enrollNumber}`);
+  }
+  
+  private async linkParentSmsSingle(
+    tx: any,
+    studentId: string,
+    parentId: string,
+    relationship: 'FATHER' | 'MOTHER' | 'PARENT' = 'PARENT',
+  ) {
+    // ✅ finans: faqat bittasiga SMS
+    await tx.studentParent.updateMany({
+      where: { studentId },
+      data: { notifySms: false },
+    });
+  
+    await tx.studentParent.upsert({
+      where: { studentId_parentId: { studentId, parentId } },
+      update: { notifySms: true, relationship },
+      create: { studentId, parentId, notifySms: true, relationship },
+    });
+  }
+
+  async create(createStudentDto: CreateStudentDto) {
+    if (!createStudentDto.schoolId) throw new BadRequestException('schoolId is required');
+    if (!createStudentDto.classId) throw new BadRequestException('classId is required');
+  
+    const dateOfBirth = createStudentDto.dateOfBirth ? new Date(createStudentDto.dateOfBirth) : undefined;
+  
+    return this.prisma.$transaction(async (tx) => {
+      // 1) optional user create
+      let userId: string | null = null;
+      if (createStudentDto.email) {
+        const user = await tx.user.create({
+          data: {
+            username: `student_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+            password: await bcrypt.hash('default123', 10),
+            email: createStudentDto.email,
+            role: 'STUDENT',
+            status: 'ACTIVE',
+          },
+        });
+        userId = user.id;
+      }
+  
+      // 2) ✅ enrollNumber ONLY if photo exists OR manual provided AND photo exists
+      const hasPhoto = !!(createStudentDto.photo && String(createStudentDto.photo).trim());
+      let enrollNumber: string | null = null;
+  
+      if (hasPhoto) {
+        enrollNumber = createStudentDto.enrollNumber?.trim()
+          ? createStudentDto.enrollNumber.trim()
+          : await this.nextStudentEnrollNumber(tx as any, createStudentDto.schoolId);
+  
+        await this.ensureUniqueEnrollNumber(tx, enrollNumber);
+      } else {
+        // photo yo‘q -> enrollNumber kerak emas
+        enrollNumber = null;
+      }
+  
+      // 3) create student
+      const student = await tx.student.create({
         data: {
-          studentId: student.id,
-          firstName: createStudentDto.parent.firstName,
-          lastName: createStudentDto.parent.lastName,
-          phone: createStudentDto.parent.phone,
-          relationship: createStudentDto.parent.relationship,
-          isTelegramActive: false,
+          userId,
+          schoolId: createStudentDto.schoolId,
+          classId: createStudentDto.classId,
+          firstName: createStudentDto.firstName,
+          lastName: createStudentDto.lastName,
+          middleName: createStudentDto.middleName ?? null,
+          dateOfBirth,
+          gender: createStudentDto.gender,
+          phone: createStudentDto.phone ?? null,
+          telegramId: createStudentDto.telegramId ?? null,
+          photo: hasPhoto ? createStudentDto.photo : null,
+          facePersonId: createStudentDto.facePersonId || null,
+          enrollNumber,
         },
       });
-
-      // Fetch student again with parents
-      const studentWithParents = await this.prisma.student.findUnique({
+  
+      // 4) ✅ Parent link (many-to-many) + notifySms single
+      if (createStudentDto.parent?.phone) {
+        const phone = createStudentDto.parent.phone.trim();
+        const parent = await tx.parent.upsert({
+          where: { phone },
+          update: {
+            firstName: createStudentDto.parent.firstName ?? undefined,
+            lastName: createStudentDto.parent.lastName ?? undefined,
+          },
+          create: {
+            phone,
+            firstName: createStudentDto.parent.firstName ?? null,
+            lastName: createStudentDto.parent.lastName ?? null,
+            isTelegramActive: false,
+          },
+        });
+  
+        await this.linkParentSmsSingle(
+          tx,
+          student.id,
+          parent.id,
+          (createStudentDto.parent.relationship as any) || 'PARENT',
+        );
+      }
+  
+      return tx.student.findUnique({
         where: { id: student.id },
         include: {
           user: true,
           school: true,
           class: true,
-          parents: true,
+          parents: { include: { parent: true } },
         },
       });
-
-      // Upload photo to turnstile if exists
-      if (studentWithParents.photo) {
-        await this.turnstileService.uploadPhoto(
-          studentWithParents.id,
-          studentWithParents.photo,
-          'student',
-        );
-      }
-
-      return studentWithParents;
-    }
-
-    // Upload photo to turnstile if exists
-    if (student.photo) {
-      await this.turnstileService.uploadPhoto(
-        student.id,
-        student.photo,
-        'student',
-      );
-    }
-
-    return student;
+    });
   }
 
   async findAll(schoolId?: string, classId?: string) {
     const where: any = {};
-    
-    if (schoolId) {
-      where.schoolId = schoolId;
-    }
-    
-    if (classId) {
-      where.classId = classId;
-    }
+
+    if (schoolId) where.schoolId = schoolId;
+    if (classId) where.classId = classId;
 
     return this.prisma.student.findMany({
       where,
@@ -132,11 +182,9 @@ export class StudentsService {
         },
         school: true,
         class: true,
-        parents: true,
+        parents: { include: { parent: true } }
       },
-      orderBy: {
-        lastName: 'asc',
-      },
+      orderBy: { lastName: 'asc' },
     });
   }
 
@@ -155,107 +203,140 @@ export class StudentsService {
         },
         school: true,
         class: true,
-        parents: true,
-        attendances: {
-          orderBy: {
-            date: 'desc',
-          },
-          take: 30, // Last 30 days
+        parents: {
+          include: {
+            parent: true,
+          }
         },
-        payments: {
-          orderBy: {
-            dueDate: 'desc',
-          },
-        },
+        attendances: { orderBy: { date: 'desc' }, take: 30 },
+        payments: { orderBy: { dueDate: 'desc' } },
       },
     });
 
-    if (!student) {
-      throw new NotFoundException(`Student with ID ${id} not found`);
-    }
 
+    if (!student) throw new NotFoundException(`Student with ID ${id} not found`);
     return student;
   }
 
-  async update(id: string, updateStudentDto: UpdateStudentDto) {
-    // Check if student exists
-    const existingStudent = await this.prisma.student.findUnique({
+  async update(id: string, dto: UpdateStudentDto) {
+
+    const existing = await this.prisma.student.findUnique({
       where: { id },
+      include: { parents: true },
     });
-
-    if (!existingStudent) {
-      throw new NotFoundException(`Student with ID ${id} not found`);
-    }
-
-    // Convert dateOfBirth to Date object if provided
-    const dateOfBirth = updateStudentDto.dateOfBirth 
-      ? new Date(updateStudentDto.dateOfBirth) 
+    if (!existing) throw new NotFoundException(`Student with ID ${id} not found`);
+  
+    const dateOfBirth = dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined;
+  
+    return this.prisma.$transaction(async (tx) => {
+      const incomingPhoto = dto.photo !== undefined 
+      ? this.cleanStr(dto.photo) 
+      : dto.faceImage !== undefined
+      ? this.cleanStr(dto.faceImage)
       : undefined;
+      const photoWillBeSetNow =
+        incomingPhoto !== undefined && incomingPhoto !== null && !existing.photo;
+  
+      let enrollNumberToSet: string | undefined = undefined;
+  
+      if (photoWillBeSetNow && !existing.enrollNumber) {
+        const manualEnroll = this.cleanStr(dto.enrollNumber);
+        const candidate = manualEnroll
+          ? manualEnroll
+          : await this.nextStudentEnrollNumber(tx as any, existing.schoolId);
+  
+        await this.ensureUniqueEnrollNumber(tx, candidate, id);
+        enrollNumberToSet = candidate;
+      }
+  
+      // ✅ If dto.enrollNumber provided but photo not set -> ignore / block
+      if (dto.enrollNumber?.trim() && (!photoWillBeSetNow && !existing.photo)) {
+        throw new BadRequestException('enrollNumber can be assigned only after photo is uploaded');
+      }
+  
+      const student = await tx.student.update({
+        where: { id },
+        data: {
+          firstName: dto.firstName ?? undefined,
+          lastName: dto.lastName ?? undefined,
+          middleName: dto.middleName !== undefined ? this.cleanStr(dto.middleName) : undefined,
+          dateOfBirth,
+          gender: dto.gender ?? undefined,
+          phone: dto.phone !== undefined ? this.cleanStr(dto.phone) : undefined,
+          telegramId: dto.telegramId !== undefined ? this.cleanStr(dto.telegramId) : undefined,
+          photo: incomingPhoto === undefined ? undefined : incomingPhoto,
+          facePersonId: dto.facePersonId !== undefined ? this.cleanStr(dto.facePersonId) : undefined,
+          enrollNumber: enrollNumberToSet,
+        },
+      });
+  
+      // ✅ Parent link update (many-to-many)
+      if (dto.parent?.phone) {
+        const phone = dto.parent.phone.trim();
+        const parent = await tx.parent.upsert({
+          where: { phone },
+          update: {
+            firstName: dto.parent.firstName ?? undefined,
+            lastName: dto.parent.lastName ?? undefined,
+          },
+          create: {
+            phone,
+            firstName: dto.parent.firstName ?? null,
+            lastName: dto.parent.lastName ?? null,
+            isTelegramActive: false,
+          },
+        });
+  
+        await this.linkParentSmsSingle(tx, student.id, parent.id, (dto.parent.relationship as any) || 'PARENT');
+      }
 
-    // Update student
-    const student = await this.prisma.student.update({
-      where: { id },
-      data: {
-        firstName: updateStudentDto.firstName,
-        lastName: updateStudentDto.lastName,
-        middleName: updateStudentDto.middleName,
-        dateOfBirth: dateOfBirth,
-        gender: updateStudentDto.gender,
-        phone: updateStudentDto.phone,
-        telegramId: updateStudentDto.telegramId,
-        photo: updateStudentDto.photo,
-      },
-      include: {
-        user: true,
-        school: true,
-        class: true,
-        parents: true,
-      },
+      console.log('UPDATE DTO keys:', Object.keys(dto));
+  
+      return tx.student.findUnique({
+        where: { id: student.id },
+        include: {
+          user: true,
+          school: true,
+          class: true,
+          parents: { include: { parent: true } },
+        },
+      });
     });
-
-    // Update photo on turnstile if changed
-    if (updateStudentDto.photo && updateStudentDto.photo !== existingStudent.photo) {
-      await this.turnstileService.updatePhoto(
-        student.id,
-        student.photo,
-        'student',
-      );
-    }
-
-    return student;
   }
 
   async remove(id: string) {
-    // Check if student exists
     const student = await this.prisma.student.findUnique({
       where: { id },
-      include: { user: true },
+      include: {
+        user: true,
+        parents: { include: { parent: true } },
+      },
     });
-
-    if (!student) {
-      throw new NotFoundException(`Student with ID ${id} not found`);
-    }
-
-    // Delete related records first
+  
+    if (!student) throw new NotFoundException(`Student with ID ${id} not found`);
+  
+    // ✅ Parent larni yig'ib olamiz
+    const parentIds = student.parents.map((sp) => sp.parentId);
+  
+    await this.prisma.studentParent.deleteMany({ where: { studentId: id } });
     await this.prisma.attendance.deleteMany({ where: { studentId: id } });
     await this.prisma.payment.deleteMany({ where: { studentId: id } });
-    await this.prisma.parent.deleteMany({ where: { studentId: id } });
-
-    // Delete student
     await this.prisma.student.delete({ where: { id } });
-
-    // Delete user account if exists
-    if (student.userId) {
-      await this.prisma.user.delete({ where: { id: student.userId } });
+  
+    // ✅ Har bir parentni tekshiramiz — boshqa studentlari yo'q bo'lsa o'chiramiz
+    for (const parentId of parentIds) {
+      const otherLinks = await this.prisma.studentParent.count({
+        where: { parentId },
+      });
+  
+      if (otherLinks === 0) {
+        await this.prisma.parent.delete({ where: { id: parentId } });
+      }
     }
-
-    // Remove from turnstile device
-    await this.turnstileService.removePhoto(id);
-
+  
     return { message: 'Student deleted successfully' };
   }
 
-  // Get student attendance statistics
   async getAttendanceStats(studentId: string, startDate?: Date, endDate?: Date) {
     const where: any = { studentId };
 
@@ -271,11 +352,11 @@ export class StudentsService {
     });
 
     const total = attendances.length;
-    const present = attendances.filter(a => a.status === 'PRESENT').length;
-    const late = attendances.filter(a => a.status === 'LATE').length;
-    const absent = attendances.filter(a => a.status === 'ABSENT').length;
-    const leave = attendances.filter(a => a.status === 'LEAVE').length;
-    const holiday = attendances.filter(a => a.status === 'HOLIDAY').length;
+    const present = attendances.filter((a) => a.status === 'PRESENT').length;
+    const late = attendances.filter((a) => a.status === 'LATE').length;
+    const absent = attendances.filter((a) => a.status === 'ABSENT').length;
+    const leave = attendances.filter((a) => a.status === 'LEAVE').length;
+    const holiday = attendances.filter((a) => a.status === 'HOLIDAY').length;
 
     return {
       total,
@@ -284,34 +365,24 @@ export class StudentsService {
       absent,
       leave,
       holiday,
-      attendanceRate: total > 0 ? ((present + late) / total * 100).toFixed(2) : '0',
+      attendanceRate: total > 0 ? (((present + late) / total) * 100).toFixed(2) : '0',
     };
   }
 
-  // Sync all students photos to turnstile
   async syncPhotosToTurnstile(schoolId: string) {
     const students = await this.prisma.student.findMany({
-      where: {
-        schoolId,
-        photo: { not: null },
-      },
-      select: {
-        id: true,
-        photo: true,
-      },
+      where: { schoolId, photo: { not: null } },
+      select: { id: true, photo: true },
     });
 
-    const users = students.map(s => ({
+    const users = students.map((s) => ({
       id: s.id,
-      photo: s.photo,
-      type: 'student',
+      photo: s.photo!,
+      type: 'student' as const,
     }));
 
     await this.turnstileService.syncSchoolPhotos(schoolId, users);
 
-    return {
-      message: 'Photos sync completed',
-      total: users.length,
-    };
+    return { message: 'Photos sync completed', total: users.length };
   }
 }

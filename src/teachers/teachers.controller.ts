@@ -34,6 +34,17 @@ export class TeachersController {
   }
 
   // ==========================================
+  // ✅ SYNC PHOTOS TO TURNSTILE
+  // ==========================================
+  @Post('sync-photos/:schoolId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.SCHOOL_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  syncPhotosToTurnstile(@Param('schoolId') schoolId: string) {
+    return this.teachersService.syncPhotosToTurnstile(schoolId);
+  }
+
+  // ==========================================
   // ✅ GET ALL TEACHERS (with type filter)
   // ==========================================
   @Get()

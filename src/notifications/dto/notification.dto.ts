@@ -4,6 +4,8 @@ import {
   IsOptional,
   IsBoolean,
   IsArray,
+  IsEnum,
+  MinLength,
 } from 'class-validator';
 
 // SMS DTOs
@@ -65,6 +67,51 @@ export class NotifyParentsDto {
   @IsBoolean()
   @IsOptional()
   sendTelegram?: boolean; // Default: true
+}
+
+export enum BroadcastChannel {
+  SMS = 'SMS',
+  TELEGRAM = 'TELEGRAM',
+  BOTH = 'BOTH',
+}
+
+export enum BroadcastTarget {
+  PARENTS_ALL = 'PARENTS_ALL',
+  TEACHERS_ALL = 'TEACHERS_ALL',
+  DIRECTORS_ALL = 'DIRECTORS_ALL',
+  SCHOOL_TEACHERS = 'SCHOOL_TEACHERS',
+  SCHOOL_PARENTS = 'SCHOOL_PARENTS',
+}
+
+export enum BroadcastCategory {
+  attendance = 'attendance',
+  payment = 'payment',
+  announcement = 'announcement',
+  success = 'success',
+  urgent = 'urgent',
+}
+
+export class BroadcastDto {
+  @IsEnum(BroadcastChannel)
+  channel: BroadcastChannel;
+
+  @IsEnum(BroadcastCategory)
+  category: BroadcastCategory;
+
+  @IsString()
+  @MinLength(1)
+  title: string;
+
+  @IsString()
+  @MinLength(1)
+  message: string;
+
+  @IsEnum(BroadcastTarget)
+  target: BroadcastTarget;
+
+  @IsOptional()
+  @IsString()
+  schoolId?: string;
 }
 
 export class NotifyClassDto {
