@@ -218,21 +218,21 @@ export class TelegramService {
       await ctx.editMessageText(
         '👨‍👩‍👧 РЕГИСТРАЦИЯ РОДИТЕЛЯ\n\n' +
           '📲 Отправьте ваш номер телефона:\n' +
-          'Формат: +998901234567',
+          'Формат: +998901234567 или +996700123456',
       );
     } else if (data === 'role_teacher') {
       await this.updateSession(chatId, 'WAITING_TEACHER_PHONE');
       await ctx.editMessageText(
         '👨‍🏫 РЕГИСТРАЦИЯ УЧИТЕЛЯ\n\n' +
           '📲 Отправьте ваш номер телефона:\n' +
-          'Формат: +998901234567',
+          'Формат: +998901234567 или +996700123456',
       );
     } else if (data === 'role_director') {
       await this.updateSession(chatId, 'WAITING_DIRECTOR_PHONE');
       await ctx.editMessageText(
         '👔 РЕГИСТРАЦИЯ ДИРЕКТОРА\n\n' +
           '📲 Отправьте ваш номер телефона:\n' +
-          'Формат: +998901234567',
+          'Формат: +998901234567 или +996700123456',
       );
     }
   }
@@ -293,8 +293,8 @@ export class TelegramService {
   // PARENT REGISTRATION (M:N FIX)
   // ==========================================
   private async handleParentPhone(ctx: Context, phone: string, chatId: string, telegramId: string) {
-    if (!phone.match(/^\+998\d{9}$/)) {
-      await ctx.reply('❌ Неправильный формат.\nФормат: +998901234567');
+    if (!phone.match(/^\+(998|996)\d{9}$|^\+7\d{10}$/)) {
+      await ctx.reply('❌ Неправильный формат.\nФормат: +998901234567 или +996700123456');
       return;
     }
 
@@ -588,8 +588,8 @@ export class TelegramService {
   // TEACHER REGISTRATION
   // ==========================================
   private async handleTeacherPhone(ctx: Context, phone: string, chatId: string, telegramId: string) {
-    if (!phone.match(/^\+998\d{9}$/)) {
-      await ctx.reply('❌ Неправильный формат.\nФормат: +998901234567');
+    if (!phone.match(/^\+(998|996)\d{9}$|^\+7\d{10}$/)) {
+      await ctx.reply('❌ Неправильный формат.\nФормат: +998901234567 или +996700123456');
       return;
     }
 
@@ -645,8 +645,8 @@ export class TelegramService {
   // DIRECTOR REGISTRATION (Teacher(type=DIRECTOR))
   // ==========================================
   private async handleDirectorPhone(ctx: Context, phone: string, chatId: string, telegramId: string) {
-    if (!phone.match(/^\+998\d{9}$/)) {
-      await ctx.reply('❌ Неправильный формат.\nФормат: +998901234567');
+    if (!phone.match(/^\+(998|996)\d{9}$|^\+7\d{10}$/)) {
+      await ctx.reply('❌ Неправильный формат.\nФормат: +998901234567 или +996700123456');
       return;
     }
 
