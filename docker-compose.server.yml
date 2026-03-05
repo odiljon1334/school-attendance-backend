@@ -45,10 +45,13 @@ services:
       - .env.prod       # repo ichidagi .env.prod fayldan o'qiydi
     environment:
       # PrismaService production da DATABASE_URL_PROD ni o'qiydi
+      # PrismaService production da DATABASE_URL_PROD ni o'qiydi
       DATABASE_URL_PROD: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/school_db?schema=public
       # prisma migrate deploy uchun ham kerak
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/school_db?schema=public
-      REDIS_URL: redis://redis:6379
+      # RedisService REDIS_HOST + REDIS_PORT o'qiydi (REDIS_URL emas!)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       PORT: 3001
       NODE_ENV: production
     depends_on:
