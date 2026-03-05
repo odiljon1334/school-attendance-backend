@@ -1,0 +1,102 @@
+# VPS da /home/deploy/ papkasiga qo'ying
+# Foydalanish: docker compose -f docker-compose.prod.yml up -d --build
+
+version: '3.8'
+
+services:
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: school_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: school_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - school_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend (NestJS) ─────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./school-attendance-backend
+    container_name: school_backend
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/school_db?schema=public
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: 7d
+      PORT: 3001
+      NODE_ENV: production
+
+      # CORS — frontend URL
+      CORS_ORIGINS: http://46.202.191.210,http://localhost:3000
+
+      # WhatsApp (Whapi)
+      WHAPI_API_URL: https://gate.whapi.cloud/
+      WHAPI_TOKEN: ${WHAPI_TOKEN}
+      WHATSAPP_BOT_PHONE: ${WHATSAPP_BOT_PHONE}
+
+      # Webhooks & callbacks uchun public URL
+      # Domain olgach: https://api.yourdomain.com ga o'zgartiring
+      APP_BASE_URL: http://46.202.191.210:3001
+
+      # SMS Gateway (Android telefon — public IP kerak)
+      # 192.168.x.x ishlaMaYdi! Faqat public IP yoki domain
+      SMS_GATEWAYS: ${SMS_GATEWAYS}
+      SMS_GATEWAY_USER: ${SMS_GATEWAY_USER}
+      SMS_GATEWAY_PASS: ${SMS_GATEWAY_PASS}
+
+      # Telegram
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+
+      # Payment (merchant kelgandan keyin)
+      PAYMENT_GATEWAY_API_URL: ${PAYMENT_GATEWAY_API_URL}
+      PAYMENT_GATEWAY_MERCHANT_ID: ${PAYMENT_GATEWAY_MERCHANT_ID}
+      PAYMENT_GATEWAY_SECRET_KEY: ${PAYMENT_GATEWAY_SECRET_KEY}
+
+      # Turnstile / Hikvision
+      TURNSTILE_IP: ${TURNSTILE_IP}
+      TURNSTILE_PORT: ${TURNSTILE_PORT}
+      TURNSTILE_USERNAME: ${TURNSTILE_USERNAME}
+      TURNSTILE_PASSWORD: ${TURNSTILE_PASSWORD}
+      TURNSTILE_ENABLED: ${TURNSTILE_ENABLED}
+      HIKVISION_INSECURE_TLS: ${HIKVISION_INSECURE_TLS}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - school_net
+
+  # ── Frontend (Next.js) ───────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./school-attendance-frontend
+      args:
+        # Build vaqtida API URL bakes in bo'ladi
+        NEXT_PUBLIC_API_URL: http://46.202.191.210:3001
+    container_name: school_frontend
+    restart: always
+    ports:
+      - "80:3000"      # Port 80 → frontend
+    depends_on:
+      - backend
+    networks:
+      - school_net
+
+networks:
+  school_net:
+    driver: bridge
+
+volumes:
+  postgres_data:

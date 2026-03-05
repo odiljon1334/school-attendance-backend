@@ -8,8 +8,14 @@ import { JwtAuthGuard } from './auth/guards/jwt.auth.guards';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
 
+  // CORS_ORIGINS env dan o'qiymiz (vergul bilan ajratilgan)
+  // Masalan: http://localhost:3000,http://46.202.191.210,https://yourdomain.com
+  const corsOrigins = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
+    : ['http://localhost:3000', 'http://192.168.1.3:3000'];
+
   app.enableCors({
-    origin: ['http://localhost:3000', 'http://192.168.1.3:3000'],
+    origin: corsOrigins,
     credentials: true,
     exposedHeaders: ['Content-Disposition'],
   });
