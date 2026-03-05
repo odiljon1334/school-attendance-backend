@@ -1,0 +1,569 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  DISTRICT_ADMIN
+  SCHOOL_ADMIN
+  DIRECTOR
+  TEACHER
+  STUDENT
+  PARENT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  LEAVE
+  HOLIDAY
+}
+
+//
+// ✅ Subscription billing uchun yangi enum
+//
+enum BillingPlan {
+  MONTHLY
+  YEARLY
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  OVERDUE
+  WAIVED
+}
+
+enum PaymentWaiveReason {
+  LOW_INCOME
+  SIBLING_DISCOUNT
+  OTHER
+}
+
+enum ParentRelation {
+  FATHER
+  MOTHER
+  PARENT
+}
+
+enum TeacherType {
+  TEACHER
+  DIRECTOR
+}
+
+model User {
+  id       String     @id @default(uuid())
+  username String     @unique
+  password String
+  email    String?
+  role     UserRole
+  status   UserStatus @default(ACTIVE)
+
+  student Student?
+  teacher Teacher?
+  parent  Parent?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model District {
+  id     String @id @default(uuid())
+  name   String
+  region String
+  code   String @unique
+
+  schools School[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model School {
+  id         String    @id @default(uuid())
+  districtId String?
+  district   District? @relation(fields: [districtId], references: [id])
+
+  name    String
+  code    String  @unique
+  address String
+  phone   String?
+  email   String?
+
+  username String? @unique
+  password String?
+
+  classes          Class[]
+  students         Student[]
+  teachers         Teacher[]
+  attendances      Attendance[]
+  hikvisionDevices HikvisionDevice[]
+
+  enrollCounter EnrollCounter?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([username])
+}
+
+model Class {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  grade        Int
+  section      String
+  academicYear String
+
+  shift     Int?    // 1 = birinchi smena, 2 = ikkinchi smena
+  startTime String? // "08:30"
+  endTime   String? // "13:30"
+
+  students       Student[]
+  teacherClasses TeacherClass[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([schoolId, grade, section, academicYear])
+}
+
+model Student {
+  id     String  @id @default(uuid())
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id])
+
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classId  String
+  class    Class  @relation(fields: [classId], references: [id])
+
+  firstName   String
+  lastName    String
+  middleName  String?
+  dateOfBirth DateTime?
+  gender      Gender
+  phone       String?
+
+  telegramId       String? @unique
+  telegramUsername String?
+  telegramChatId   String?
+  isTelegramActive Boolean @default(false)
+
+  turnstileIdentities TurnstileIdentity[]
+
+  photo        String?
+  facePersonId String? @unique
+  enrollNumber String? @unique
+
+  importKey String? @unique
+
+  isSmsEnabled    Boolean   @default(true)
+  smsPaidUntil    DateTime?
+  smsPaymentType  String?
+  smsReminderSent Boolean   @default(false)
+
+  isLowIncome Boolean @default(false)
+  billingPlan       BillingPlan @default(MONTHLY)
+  billingPaidUntil  DateTime?
+
+  parents     StudentParent[]
+  attendances Attendance[]
+  payments    Payment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([classId])
+  @@index([billingPaidUntil])
+  @@index([isSmsEnabled])
+  @@index([smsPaidUntil])
+  @@index([isLowIncome])
+}
+
+model StudentParent {
+  studentId String
+  parentId  String
+
+  notifySms Boolean @default(false)
+
+  isBillingPayer Boolean @default(false)
+
+  relationship ParentRelation @default(PARENT)
+
+  createdAt DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  parent  Parent  @relation(fields: [parentId], references: [id], onDelete: Cascade)
+
+  @@id([studentId, parentId])
+  @@index([parentId])
+  @@index([studentId])
+  @@index([isBillingPayer])
+}
+
+model Teacher {
+  id String @id @default(uuid())
+
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  type TeacherType @default(TEACHER)
+
+  schoolId  String?
+  school    School?  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  firstName String?
+  lastName  String?
+  phone     String?
+  subjects  String[] @default([])
+
+  turnstileIdentities TurnstileIdentity[]
+
+  telegramId       String?
+  telegramUsername String?
+  telegramChatId   String?
+  isTelegramActive Boolean @default(false)
+
+  photo        String?
+  facePersonId String? @unique
+  enrollNumber String? @unique
+
+  teacherClasses TeacherClass[]
+
+  schedule           TeacherSchedule?
+  payrollAttendances TeacherAttendance[] @relation("TeacherPayrollAttendance")
+  payrolls           TeacherPayroll[]    @relation("TeacherPayroll")
+
+  attendances Attendance[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([telegramId])
+  @@index([facePersonId])
+  @@index([type])
+}
+
+model TeacherClass {
+  id String @id @default(uuid())
+
+  teacherId String
+  teacher   Teacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  classId String
+  class   Class  @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([teacherId, classId])
+}
+
+model TeacherSchedule {
+  id        String  @id @default(uuid())
+  teacherId String  @unique
+  teacher   Teacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  workDays      Json
+  startTime     String
+  endTime       String
+  hoursPerDay   Float
+  daysPerWeek   Int
+  hoursPerMonth Float
+
+  baseSalary Float
+  hourlyRate Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("teacher_schedules")
+}
+
+model TeacherAttendance {
+  id        String  @id @default(uuid())
+  teacherId String
+  teacher   Teacher @relation("TeacherPayrollAttendance", fields: [teacherId], references: [id], onDelete: Cascade)
+
+  date DateTime
+
+  checkInTime  DateTime?
+  checkOutTime DateTime?
+
+  workDuration Float?
+  isLate       Boolean @default(false)
+  lateMinutes  Int     @default(0)
+  leftEarly    Boolean @default(false)
+  earlyMinutes Int     @default(0)
+  isAbsent     Boolean @default(false)
+
+  status AttendanceStatus @default(ABSENT)
+  notes  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([teacherId, date])
+  @@index([teacherId, date])
+  @@map("teacher_attendances")
+}
+
+model TeacherPayroll {
+  id        String  @id @default(uuid())
+  teacherId String
+  teacher   Teacher @relation("TeacherPayroll", fields: [teacherId], references: [id], onDelete: Cascade)
+
+  month String
+
+  expectedDays  Int
+  expectedHours Float
+  baseSalary    Float
+
+  totalDaysWorked  Int
+  totalHoursWorked Float
+
+  lateDays          Int @default(0)
+  lateMinutes       Int @default(0)
+  earlyLeaveDays    Int @default(0)
+  earlyLeaveMinutes Int @default(0)
+  absentDays        Int @default(0)
+
+  missedHours   Float
+  penaltyAmount Float
+
+  bonusAmount Float   @default(0)
+  bonusReason String?
+
+  actualSalary Float
+
+  isPaid        Boolean   @default(false)
+  paidAt        DateTime?
+  paymentMethod String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([teacherId, month])
+  @@index([teacherId, month])
+  @@map("teacher_payrolls")
+}
+
+model Parent {
+  id     String  @id @default(uuid())
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id])
+
+  firstName String?
+  lastName  String?
+  phone     String  @unique
+
+  whatsappPhone    String?
+  isWhatsappActive Boolean @default(false)
+
+  telegramId       String? @unique
+  telegramUsername String?
+  telegramChatId   String?
+  isTelegramActive Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  students StudentParent[]
+}
+
+model Attendance {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  studentId String?
+  student   Student? @relation(fields: [studentId], references: [id])
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id])
+
+  date         DateTime
+  status       AttendanceStatus
+  checkInTime  DateTime?
+  checkOutTime DateTime?
+  lateMinutes  Int?
+  lateCount    Int              @default(0)
+  deviceId     String?
+  notes        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([studentId, date])
+  @@unique([teacherId, date])
+  @@index([schoolId, date])
+}
+
+//
+// Payment endi "subscription invoice" sifatida ishlaydi
+//
+model Payment {
+  id        String  @id @default(uuid())
+  studentId String
+  student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  plan      BillingPlan
+  amount    Int
+  periodKey String
+
+  dueDate   DateTime
+  paidDate  DateTime?
+  status    PaymentStatus @default(PENDING)
+
+  waiveReason PaymentWaiveReason?
+  waivedAt    DateTime?
+
+  externalOrderId  String?   // Balance.kg orderId (webhook matchi uchun)
+  transactionId    String?   // Balance.kg transactionId
+  paymentMethod    String?   // MBANK | ODENGI | ELCART | QR | CASH | BANK_TRANSFER
+
+  notifiedAt  DateTime?
+  notifyCount Int @default(0)
+
+  notes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([studentId, plan, periodKey])
+  @@index([studentId])
+  @@index([status])
+  @@index([plan, periodKey])
+}
+
+model Notification {
+  id            String @id @default(uuid())
+  recipientType String
+  recipientId   String
+
+  type    String
+  title   String
+  message String
+  sentVia String
+
+  isRead    Boolean   @default(false)
+  readAt    DateTime?
+
+  isSent Boolean   @default(false)
+  sentAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([recipientId, isSent])
+}
+
+model TelegramSession {
+  id         String @id @default(uuid())
+  chatId     String @unique
+  telegramId String
+
+  userId   String?
+  userType String?
+  state    String  @default("START")
+  data     Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([chatId])
+  @@index([telegramId])
+}
+
+model SmsLog {
+  id        String   @id @default(uuid())
+  recipient String
+  message   String
+  status    String
+  sentAt    DateTime @default(now())
+
+  @@index([recipient])
+  @@index([sentAt])
+}
+
+model HikvisionDevice {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  name       String
+  deviceId   String              @unique
+  ipAddress  String
+  port       Int                 @default(80)
+  username   String
+  password   String
+  isActive   Boolean             @default(true)
+  identities TurnstileIdentity[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([schoolId])
+}
+
+enum TurnstilePersonType {
+  STUDENT
+  TEACHER
+}
+
+model TurnstileIdentity {
+  id String @id @default(uuid())
+
+  employeeNo String
+
+  deviceId String
+  device   HikvisionDevice @relation(fields: [deviceId], references: [deviceId], onDelete: Cascade)
+
+  personType TurnstilePersonType
+
+  studentId String?
+  student   Student? @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([deviceId, employeeNo])
+  @@unique([deviceId, studentId])
+  @@unique([deviceId, teacherId])
+  @@index([deviceId])
+  @@index([personType])
+  @@index([studentId])
+  @@index([teacherId])
+}
+
+model EnrollCounter {
+  id       String @id @default(uuid())
+  schoolId String @unique
+
+  // har bir school uchun alohida sanagich
+  studentSeq Int @default(0)
+  staffSeq   Int @default(0) // teacher + director
+
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
