@@ -146,20 +146,9 @@ export class CsvImportService {
     if (!file) throw new BadRequestException('File not provided');
     if (!schoolId) throw new BadRequestException('School ID is required');
 
-    // ✅ ENG katta muammo: Student modelida @@unique([schoolId])
-    // Agar shu turgan bo‘lsa, birinchi studentdan keyin hammasi yiqiladi.
-    // Shuning uchun importni boshidayoq to‘xtatamiz.
-    const already = await this.prisma.student.count({ where: { schoolId } });
-    if (already > 0) {
-      throw new BadRequestException(
-        `Prisma schema xato: Student modelida "@@unique([schoolId])" bor. ` +
-          `Bu bitta maktabga faqat 1 ta student degani. ` +
-          `Uni olib tashlamasangiz CSV import ishlamaydi.`,
-      );
-    }
-
     const csvContent = file.buffer.toString('utf-8');
     const parsed = Papa.parse(csvContent, { header: true, skipEmptyLines: true });
+
 
     if (parsed.errors.length) {
       throw new BadRequestException({

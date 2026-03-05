@@ -133,6 +133,10 @@ model Class {
   section      String
   academicYear String
 
+  shift     Int?    // 1 = birinchi smena, 2 = ikkinchi smena
+  startTime String? // "08:30"
+  endTime   String? // "13:30"
+
   students       Student[]
   teacherClasses TeacherClass[]
 

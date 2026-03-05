@@ -28,6 +28,9 @@ export class ClassesService {
         grade: createClassDto.grade,
         section: createClassDto.section,
         academicYear: createClassDto.academicYear,
+        shift: createClassDto.shift ?? null,
+        startTime: createClassDto.startTime ?? null,
+        endTime: createClassDto.endTime ?? null,
       },
       include: {
         school: true,
@@ -130,6 +133,9 @@ export class ClassesService {
       grade: updateClassDto.grade,
       section: updateClassDto.section,
       academicYear: updateClassDto.academicYear,
+      shift: updateClassDto.shift ?? undefined,
+      startTime: updateClassDto.startTime ?? undefined,
+      endTime: updateClassDto.endTime ?? undefined,
     },
     include: {
       school: true,

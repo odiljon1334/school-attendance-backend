@@ -17,6 +17,20 @@ export class CreateClassDto {
   @IsString()
   @IsNotEmpty()
   academicYear: string; // 2024-2025
+
+  @IsNumber()
+  @Min(1)
+  @Max(2)
+  @IsOptional()
+  shift?: number; // 1 = birinchi smena, 2 = ikkinchi smena
+
+  @IsString()
+  @IsOptional()
+  startTime?: string; // "08:30"
+
+  @IsString()
+  @IsOptional()
+  endTime?: string; // "13:30"
 }
 
 export class UpdateClassDto {
@@ -33,4 +47,18 @@ export class UpdateClassDto {
   @IsString()
   @IsOptional()
   academicYear?: string;
+
+  @IsNumber()
+  @Min(1)
+  @Max(2)
+  @IsOptional()
+  shift?: number; // 1 = birinchi smena, 2 = ikkinchi smena
+
+  @IsString()
+  @IsOptional()
+  startTime?: string; // "08:30"
+
+  @IsString()
+  @IsOptional()
+  endTime?: string; // "13:30"
 }
