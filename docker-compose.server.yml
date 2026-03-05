@@ -1,0 +1,64 @@
+# VPS backend-only deploy
+# Ishlatish:
+#   cd /home/deploy/school-attendance-backend
+#   docker compose -f docker-compose.server.yml up -d --build
+
+version: '3.8'
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: school_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: school_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - school_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: school_redis
+    restart: always
+    networks:
+      - school_net
+
+  # ── Backend (NestJS) ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .        # docker-compose.server.yml repo ichida bo'lgani uchun
+    container_name: school_backend
+    restart: always
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env.prod       # repo ichidagi .env.prod fayldan o'qiydi
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/school_db?schema=public
+      REDIS_URL: redis://redis:6379
+      PORT: 3001
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - school_net
+
+networks:
+  school_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
