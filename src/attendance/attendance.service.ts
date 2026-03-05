@@ -172,7 +172,7 @@ export class AttendanceService {
       const timeSinceCheckIn = now.getTime() - existing.checkInTime.getTime();
 
       if (timeSinceCheckIn >= MIN_CHECKOUT_INTERVAL_MS) {
-        return this.handleCheckOut({ person, record: existing, now });
+        return this.handleCheckOut({ person, record: existing, now, capturePhoto });
       }
 
       const minutesLeft = Math.ceil((MIN_CHECKOUT_INTERVAL_MS - timeSinceCheckIn) / 60000);
@@ -297,8 +297,8 @@ export class AttendanceService {
   // ======================================================
   // CHECK-OUT HANDLER
   // ======================================================
-  private async handleCheckOut(params: { person: PersonResolved; record: any; now: Date }) {
-    const { person, record, now } = params;
+  private async handleCheckOut(params: { person: PersonResolved; record: any; now: Date; capturePhoto?: string }) {
+    const { person, record, now, capturePhoto } = params;
 
     const updated = await this.prisma.attendance.update({
       where: { id: record.id },
@@ -316,7 +316,7 @@ export class AttendanceService {
       });
 
       if (canNotify) {
-        await this.sendCheckOutNotification({ person, attendance: updated });
+        await this.sendCheckOutNotification({ person, attendance: updated, capturePhoto });
       } else {
         this.logger.log(`🔕 CHECK-OUT notif suppressed (cooldown): student=${person.id}`);
       }
@@ -434,7 +434,7 @@ export class AttendanceService {
 
     for (const parent of person.parents || []) {
       try {
-        // ✅ WhatsApp — RUS TILI
+        // ✅ WhatsApp — RUS TILI (foto bilan!)
         if (parent.isWhatsappActive && parent.whatsappPhone) {
           const waMsg =
             `*ПОСЕЩАЕМОСТЬ*\n\n` +
@@ -444,8 +444,13 @@ export class AttendanceService {
             (isLate ? `\nОпоздание: ${lateMinutes} мин` : '') +
             `\nДата: ${date}\n\nАдминистрация школы.`;
 
-          await this.wa.sendText(parent.whatsappPhone, waMsg);
-          this.logger.log(`WA check-in -> ${parent.whatsappPhone}`);
+          if (capturePhoto) {
+            // Foto bilan yuborish — Whapi /messages/image
+            await this.wa.sendPhoto(parent.whatsappPhone, capturePhoto, waMsg);
+          } else {
+            await this.wa.sendText(parent.whatsappPhone, waMsg);
+          }
+          this.logger.log(`WA check-in -> ${parent.whatsappPhone} (photo: ${!!capturePhoto})`);
         }
 
         // ✅ SMS — RUS TILI (smsService.buildCheckInMessage allaqachon rus tilida)
@@ -491,8 +496,8 @@ export class AttendanceService {
   // ======================================================
   // CHECK-OUT NOTIFICATION
   // ======================================================
-  private async sendCheckOutNotification(params: { person: PersonResolved; attendance: any }) {
-    const { person, attendance } = params;
+  private async sendCheckOutNotification(params: { person: PersonResolved; attendance: any; capturePhoto?: string }) {
+    const { person, attendance, capturePhoto } = params;
     const canSend = await this.canSendNotification(person);
 
     const checkInTime = attendance.checkInTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
@@ -501,7 +506,7 @@ export class AttendanceService {
 
     for (const parent of person.parents || []) {
       try {
-        // ✅ WhatsApp — RUS TILI
+        // ✅ WhatsApp — RUS TILI (foto bilan!)
         if (parent.isWhatsappActive && parent.whatsappPhone) {
           const waMsg =
             `*УЧЕНИК ПОКИНУЛ ШКОЛУ*\n\n` +
@@ -511,8 +516,12 @@ export class AttendanceService {
             `Прибыл: ${checkInTime}\n` +
             `Дата: ${date}\n\nАдминистрация школы.`;
 
-          await this.wa.sendText(parent.whatsappPhone, waMsg);
-          this.logger.log(`WA check-out -> ${parent.whatsappPhone}`);
+          if (capturePhoto) {
+            await this.wa.sendPhoto(parent.whatsappPhone, capturePhoto, waMsg);
+          } else {
+            await this.wa.sendText(parent.whatsappPhone, waMsg);
+          }
+          this.logger.log(`WA check-out -> ${parent.whatsappPhone} (photo: ${!!capturePhoto})`);
         }
 
         // ✅ SMS — RUS TILI
@@ -527,7 +536,7 @@ export class AttendanceService {
           this.logger.log(`SMS check-out -> ${parent.phone}`);
         }
 
-        // ✅ Telegram — RUS TILI
+        // ✅ Telegram — RUS TILI (foto bilan!)
         if (parent.isTelegramActive && parent.telegramChatId && canSend.telegram) {
           const msg =
             `Здравствуйте, уважаемый(ая) ${parent.firstName} ${parent.lastName}!\n\n` +
@@ -536,8 +545,12 @@ export class AttendanceService {
             `Прибыл: ${checkInTime}\n` +
             `Дата: ${date}\n\nАдминистрация школы.`;
 
-          await this.telegramService.sendMessage(parent.telegramChatId, msg);
-          this.logger.log(`TG check-out -> ${parent.telegramChatId}`);
+          if (capturePhoto) {
+            await this.telegramService.sendPhotoFromBase64(parent.telegramChatId, capturePhoto, msg);
+          } else {
+            await this.telegramService.sendMessage(parent.telegramChatId, msg);
+          }
+          this.logger.log(`TG check-out -> ${parent.telegramChatId} (photo: ${!!capturePhoto})`);
         }
       } catch (error: any) {
         this.logger.error(`Check-out notif error (parent ${parent.id}): ${error?.message}`);

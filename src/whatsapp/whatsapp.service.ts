@@ -157,6 +157,41 @@ export class WhatsappService {
   }
 
   // ─────────────────────────────────────────────
+  // SEND PHOTO (base64 yoki URL)
+  // Whapi endpoint: POST /messages/image
+  // ─────────────────────────────────────────────
+  async sendPhoto(to: string, photoBase64: string, caption?: string): Promise<void> {
+    const chatId = this.toChatId(to);
+    try {
+      // base64 → data URI formatiga o'tkazamiz (agar allaqachon data URI bo'lmasa)
+      const imageLink = photoBase64.startsWith('data:')
+        ? photoBase64
+        : `data:image/jpeg;base64,${photoBase64}`;
+
+      await this.http.post('/messages/image', {
+        to: chatId,
+        image: {
+          link: imageLink,
+          caption: caption ?? '',
+        },
+      });
+
+      this.logger.log(`📸 WA photo sent → ${chatId}`);
+    } catch (err: any) {
+      this.logger.error(`sendPhoto → ${chatId}: ${err?.message}`);
+      // Foto yubora olmasa, matnni fallback qilib yuboramiz
+      if (caption) {
+        try {
+          await this.sendText(to, caption);
+          this.logger.warn(`⚠️ WA photo fallback to text → ${chatId}`);
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────
   // TYPING INDICATOR (UX uchun)
   // ─────────────────────────────────────────────
   async sendTyping(to: string): Promise<void> {
