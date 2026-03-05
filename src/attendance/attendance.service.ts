@@ -701,7 +701,7 @@ export class AttendanceService {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const [totalStudents, totalTeachers, presentStudents, presentTeachers] = await Promise.all([
+    const [totalStudents, totalTeachers, presentStudents, lateStudents, presentTeachers] = await Promise.all([
       this.prisma.student.count({ where: { schoolId } }),
       this.prisma.teacher.count({ where: { schoolId } }),
 
@@ -710,7 +710,16 @@ export class AttendanceService {
           schoolId,
           studentId: { not: null },
           date: { gte: today, lt: tomorrow },
-          status: { in: ['PRESENT', 'LATE'] },
+          status: 'PRESENT',
+        },
+      }),
+
+      this.prisma.attendance.count({
+        where: {
+          schoolId,
+          studentId: { not: null },
+          date: { gte: today, lt: tomorrow },
+          status: 'LATE',
         },
       }),
 
@@ -724,13 +733,16 @@ export class AttendanceService {
       }),
     ]);
 
+    const absentStudents = totalStudents - presentStudents - lateStudents;
+
     const result = {
       counts: { totalStudents, totalTeachers },
       todayAttendance: {
         students: {
           present: presentStudents,
-          absent: totalStudents - presentStudents,
-          rate: totalStudents > 0 ? ((presentStudents / totalStudents) * 100).toFixed(1) : '0',
+          late: lateStudents,
+          absent: absentStudents < 0 ? 0 : absentStudents,
+          rate: totalStudents > 0 ? (((presentStudents + lateStudents) / totalStudents) * 100).toFixed(1) : '0',
         },
         teachers: {
           present: presentTeachers,
@@ -741,6 +753,40 @@ export class AttendanceService {
     };
 
     await this.redis.setCache(cacheKey, result, 30); // 30 soniya cache
+    return result;
+  }
+
+  // ======================================================
+  // DATE STATS — haftalik/kunlik grafik uchun (bitta sanada count)
+  // ======================================================
+  async getStatsByDate(schoolId: string, dateStr: string) {
+    const cacheKey = `attendance:stats:date:${schoolId}:${dateStr}`;
+    const cached = await this.redis.getCache(cacheKey);
+    if (cached) return cached;
+
+    const date = new Date(dateStr);
+    date.setHours(0, 0, 0, 0);
+    const nextDay = new Date(date.getTime() + 24 * 60 * 60 * 1000);
+
+    const [present, late, absent] = await Promise.all([
+      this.prisma.attendance.count({
+        where: { schoolId, studentId: { not: null }, date: { gte: date, lt: nextDay }, status: 'PRESENT' },
+      }),
+      this.prisma.attendance.count({
+        where: { schoolId, studentId: { not: null }, date: { gte: date, lt: nextDay }, status: 'LATE' },
+      }),
+      this.prisma.attendance.count({
+        where: { schoolId, studentId: { not: null }, date: { gte: date, lt: nextDay }, status: 'ABSENT' },
+      }),
+    ]);
+
+    const result = { present, late, absent, total: present + late + absent };
+
+    // O'tgan kunlar uchun 5 daqiqa cache (o'zgarmaydi), bugun uchun 30 soniya
+    const today = new Date().toISOString().split('T')[0];
+    const ttl = dateStr < today ? 300 : 30;
+    await this.redis.setCache(cacheKey, result, ttl);
+
     return result;
   }
 

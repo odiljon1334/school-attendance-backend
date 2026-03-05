@@ -98,6 +98,27 @@ export class AttendanceController {
   }
 
   // ==========================================
+  // ✅ DATE STATS — haftalik/kunlik grafik uchun
+  // GET /attendance/stats/date/:schoolId?date=YYYY-MM-DD
+  // ==========================================
+  @Get('stats/date/:schoolId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.DISTRICT_ADMIN,
+    UserRole.SCHOOL_ADMIN,
+    UserRole.DIRECTOR,
+    UserRole.TEACHER,
+  )
+  getStatsByDate(
+    @Param('schoolId') schoolId: string,
+    @Query('date') date: string,
+  ) {
+    if (!date) throw new BadRequestException('date query param required (YYYY-MM-DD)');
+    return this.attendanceService.getStatsByDate(schoolId, date);
+  }
+
+  // ==========================================
   // ✅ TOP STUDENTS (Frontend ishlatadi)
   // ==========================================
   @Get('top-students/:schoolId')
