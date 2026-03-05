@@ -688,6 +688,13 @@ export class AttendanceService {
   // TODAY STATS
   // ======================================================
   async getTodayStats(schoolId: string) {
+    const cacheKey = `attendance:stats:today:${schoolId}`;
+    const cached = await this.redis.getCache(cacheKey);
+    if (cached) {
+      this.logger.log(`📦 Cache HIT: ${cacheKey}`);
+      return cached;
+    }
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -717,7 +724,7 @@ export class AttendanceService {
       }),
     ]);
 
-    return {
+    const result = {
       counts: { totalStudents, totalTeachers },
       todayAttendance: {
         students: {
@@ -732,6 +739,9 @@ export class AttendanceService {
         },
       },
     };
+
+    await this.redis.setCache(cacheKey, result, 30); // 30 soniya cache
+    return result;
   }
 
   // ======================================================

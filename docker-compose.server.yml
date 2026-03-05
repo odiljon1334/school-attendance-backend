@@ -24,6 +24,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
 
   # ── Redis ───────────────────────────────────────────────────────────────────
   redis:
@@ -32,6 +39,13 @@ services:
     restart: always
     networks:
       - school_net
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+        reservations:
+          memory: 32M
 
   # ── Backend (NestJS) ────────────────────────────────────────────────────────
   backend:
@@ -61,6 +75,13 @@ services:
         condition: service_started
     networks:
       - school_net
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
 
 networks:
   school_net:

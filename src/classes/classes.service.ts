@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 
 @Injectable()
 export class ClassesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private redis: RedisService,
+  ) {}
 
   async create(createClassDto: any) {
     // Check if class already exists
@@ -46,55 +50,63 @@ export class ClassesService {
   }
 
   async findAll(schoolId?: string, academicYear?: string) {
+    const cacheKey = `classes:all:${schoolId ?? 'global'}:${academicYear ?? 'current'}`;
+    const cached = await this.redis.getCache(cacheKey);
+    if (cached) return cached;
+
     const where: any = {};
     if (schoolId) where.schoolId = schoolId;
     if (academicYear) where.academicYear = academicYear;
-  
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+
     const classes = await this.prisma.class.findMany({
       where,
       include: {
         school: true,
         _count: { select: { students: true } },
         teacherClasses: { include: { teacher: true } },
-        students: { select: { id: true } }, // ← faqat id lar
+        students: { select: { id: true } },
       },
       orderBy: [{ grade: 'asc' }, { section: 'asc' }],
     });
-  
-    // Bugungi attendance stats
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
-  
-    return Promise.all(
-      classes.map(async (cls) => {
-        const studentIds = cls.students.map((s) => s.id);
-  
-        const attendances = studentIds.length > 0
-          ? await this.prisma.attendance.findMany({
-              where: {
-                studentId: { in: studentIds },
-                date: { gte: today, lt: tomorrow },
-              },
-              select: { studentId: true, status: true },
-            })
-          : [];
-  
-        const present = attendances.filter(
-          (a) => a.status === 'PRESENT' || a.status === 'LATE'
-        ).length;
-        const total = cls._count.students;
-        const absent = total - present;
-        const rate = total > 0 ? ((present / total) * 100).toFixed(1) : '0';
-  
-        const { students, ...classWithoutStudents } = cls;
-  
-        return {
-          ...classWithoutStudents,
-          attendanceStats: { present, absent, rate },
-        };
-      })
-    );
+
+    // N+1 fix: Barcha sinflar uchun bitta query
+    const allStudentIds = classes.flatMap((cls) => cls.students.map((s) => s.id));
+
+    const allAttendances = allStudentIds.length > 0
+      ? await this.prisma.attendance.findMany({
+          where: {
+            studentId: { in: allStudentIds },
+            date: { gte: today, lt: tomorrow },
+          },
+          select: { studentId: true, status: true },
+        })
+      : [];
+
+    // studentId bo'yicha Map yaratamiz — tez qidirish uchun
+    const attendanceMap = new Map<string, string>();
+    for (const a of allAttendances) {
+      if (a.studentId) attendanceMap.set(a.studentId, a.status);
+    }
+
+    const result = classes.map((cls) => {
+      const studentIds = cls.students.map((s) => s.id);
+      const present = studentIds.filter((id) => {
+        const status = attendanceMap.get(id);
+        return status === 'PRESENT' || status === 'LATE';
+      }).length;
+      const total = cls._count.students;
+      const absent = total - present;
+      const rate = total > 0 ? ((present / total) * 100).toFixed(1) : '0';
+      const { students, ...classWithoutStudents } = cls;
+      return { ...classWithoutStudents, attendanceStats: { present, absent, rate } };
+    });
+
+    await this.redis.setCache(cacheKey, result, 60); // 60 soniya cache
+    return result;
   }
 
   async findOne(id: string) {
