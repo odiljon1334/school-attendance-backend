@@ -3,7 +3,7 @@ import { Prisma, BillingPlan, PaymentStatus, PaymentWaiveReason } from '@prisma/
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { GenerateBillingDto, GenerateMode, GenerateStrategy } from './dto/generate-billing.dto';
-import { computeNextPaidUntil, makePeriodKey, toIntAmount } from './billing.utils';
+import { computeNextPaidUntil, computePeriodEnd, makePeriodKey, toIntAmount } from './billing.utils';
 
 type StudentForBilling = {
   id: string;
@@ -65,8 +65,6 @@ export class BillingService {
     const sendNotifications = dto.sendNotifications ?? true;
     const strategy = dto.strategy ?? GenerateStrategy.ROLLING_DUE;
 
-    const amount = this.getPlanAmount(dto.plan);
-
     // 1) Load students + parent links
     const students = (await this.prisma.student.findMany({
       where: { schoolId: dto.schoolId },
@@ -125,6 +123,7 @@ export class BillingService {
 
     // 3) Dispatch strategy
     if (strategy === GenerateStrategy.FIXED_PERIOD) {
+      const amount = this.getPlanAmount(dto.plan);
       this.validateFixedPeriodKey(dto.plan, dto.periodKey);
       return this.generateFixedPeriod({
         schoolId: dto.schoolId,
@@ -138,11 +137,9 @@ export class BillingService {
       });
     }
 
-    // default: rolling
+    // default: rolling — har bir student o'z billingPlan idan foydalanadi
     return this.generateRollingDue({
       schoolId: dto.schoolId,
-      plan: dto.plan,
-      amount,
       mode,
       decisions,
       sendNotifications,
@@ -271,121 +268,116 @@ export class BillingService {
 
   // --------------------------
   // ROLLING_DUE (recommended)
-  // - billingPaidUntil yaqin bo‘lsa invoice chiqaradi
+  // - billingPaidUntil yaqin bo'lsa invoice chiqaradi
+  // - Har bir student o'z billingPlan (MONTHLY/YEARLY) idan foydalanadi
   // - periodKey = "YYYY-MM-DD..YYYY-MM-DD"
   // --------------------------
   private async generateRollingDue(params: {
     schoolId: string;
-    plan: BillingPlan;
-    amount: number;
     mode: GenerateMode;
     decisions: Map<string, { status: PaymentStatus; waiveReason?: PaymentWaiveReason }>;
     sendNotifications: boolean;
     daysBefore: number;
     students: StudentForBilling[];
   }) {
-    const { schoolId, plan, amount, mode, decisions, sendNotifications, daysBefore, students } = params;
-  
+    const { schoolId, mode, decisions, sendNotifications, daysBefore, students } = params;
+
     const now = new Date();
     const threshold = new Date(now);
     threshold.setDate(threshold.getDate() + daysBefore);
-  
-    // 1) Faqat shu plan dagi studentlar
-    const target = students.filter((s) => (s.billingPlan ?? BillingPlan.MONTHLY) === plan);
-  
+
+    // 1) Barcha studentlar — har biri o'z billingPlan'idan foydalanadi
     let created = 0;
     let updated = 0;
     let skipped = 0;
-  
+
     const affectedIds: string[] = [];
     const toCreate: Prisma.PaymentCreateManyInput[] = [];
     const toUpdate: Array<{ id: string; data: Prisma.PaymentUpdateInput }> = [];
-  
-    // 2) Invoice kerak bo‘ladigan candidate’larni oldindan hisoblab olamiz
-    //    (shu bilan periodKey’lar setini olamiz)
+
+    // 2) Candidate'larni hisoblash — har student o'z plan va amount'i bilan
     const candidates: Array<{
       studentId: string;
+      plan: BillingPlan;
       periodKey: string;
-      dueDate: Date; // sizning rolling qoidangizga ko‘ra
+      dueDate: Date;
       status: PaymentStatus;
       waiveReason: PaymentWaiveReason | null;
       waivedAt: Date | null;
       amount: number;
     }> = [];
-  
-    for (const s of target) {
+
+    for (const s of students) {
       const paidUntil = s.billingPaidUntil;
-  
+
       // Hali vaqt bor => invoice kerak emas
       if (paidUntil && paidUntil > threshold) {
         skipped++;
         continue;
       }
-  
-      // start: to‘lov sanasidan keyin hisoblash qoidangizga mos
-      // paidUntil bo‘lsa va u kelajakda bo‘lsa — shu joydan, aks holda hozir (now) dan
+
+      const studentPlan = s.billingPlan ?? BillingPlan.MONTHLY;
+      const studentAmount = this.getPlanAmount(studentPlan);
+
       const start = paidUntil && paidUntil > now ? paidUntil : now;
-  
-      const end = computeNextPaidUntil(plan, start);
+      // Period oxiri: YEARLY → keyingi May 25 (9 oylik maktab yili), MONTHLY → +1 oy
+      const end = computePeriodEnd(studentPlan, start);
       const periodKey = makePeriodKey(start, end);
-  
+
       const d = decisions.get(s.id) ?? { status: PaymentStatus.PENDING };
       const status = d.status;
-  
       const waiveReason =
-        status === PaymentStatus.WAIVED
-          ? (d.waiveReason ?? PaymentWaiveReason.OTHER)
-          : null;
-  
+        status === PaymentStatus.WAIVED ? (d.waiveReason ?? PaymentWaiveReason.OTHER) : null;
+
       candidates.push({
         studentId: s.id,
+        plan: studentPlan,
         periodKey,
-        dueDate: start, // rolling due: "hozir due" (xohlasangiz start + daysBefore qilamiz)
+        dueDate: start,
         status,
         waiveReason,
         waivedAt: status === PaymentStatus.WAIVED ? new Date() : null,
-        amount: status === PaymentStatus.WAIVED ? 0 : amount,
+        amount: status === PaymentStatus.WAIVED ? 0 : studentAmount,
       });
     }
-  
+
     if (!candidates.length) {
-      return { created: 0, updated: 0, skipped, notified: 0, plan, strategy: 'ROLLING_DUE', daysBefore, amount };
+      return { created: 0, updated: 0, skipped, notified: 0, plan: 'MIXED', strategy: 'ROLLING_DUE', daysBefore };
     }
-  
-    // 3) N+1 o‘rniga: bitta bulk query
+
+    // 3) Bulk query — plan ham key'ga kiradi (MONTHLY vs YEARLY ajratish uchun)
     const studentIds = Array.from(new Set(candidates.map((c) => c.studentId)));
     const periodKeys = Array.from(new Set(candidates.map((c) => c.periodKey)));
-  
-    // ⚠️ Juda katta maktab bo‘lsa IN list juda kattalashishi mumkin.
-    // Shu uchun chunk qilib olamiz (production safe).
+
     const existingMap = new Map<string, { id: string; status: PaymentStatus }>();
-  
-    const chunkSize = 500; // xavfsiz default
+
+    const chunkSize = 500;
     for (let i = 0; i < periodKeys.length; i += chunkSize) {
       const pkChunk = periodKeys.slice(i, i + chunkSize);
-  
+
       const rows = await this.prisma.payment.findMany({
         where: {
           studentId: { in: studentIds },
-          plan,
           periodKey: { in: pkChunk },
+          // plan filtri yo'q — har student o'z plan'i bilan tekshiriladi
         },
-        select: { id: true, studentId: true, periodKey: true, status: true },
+        select: { id: true, studentId: true, periodKey: true, status: true, plan: true },
       });
-  
+
       for (const r of rows) {
-        existingMap.set(`${r.studentId}|${r.periodKey}`, { id: r.id, status: r.status });
+        // Key: studentId + plan + periodKey — noyob kombinatsiya
+        existingMap.set(`${r.studentId}|${r.plan}|${r.periodKey}`, { id: r.id, status: r.status });
       }
     }
-  
-    // 4) create/update ro‘yxatlarini build qilamiz
+
+    // 4) create/update ro'yxatlarini build qilamiz
     for (const c of candidates) {
-      const key = `${c.studentId}|${c.periodKey}`;
+      const key = `${c.studentId}|${c.plan}|${c.periodKey}`;
       const ex = existingMap.get(key);
-  
+
       const baseCreate: Prisma.PaymentCreateManyInput = {
         studentId: c.studentId,
-        plan,
+        plan: c.plan,        // ← student o'z plan'i
         periodKey: c.periodKey,
         amount: c.amount,
         dueDate: c.dueDate,
@@ -394,22 +386,22 @@ export class BillingService {
         waivedAt: c.waivedAt,
         paidDate: null,
       };
-  
+
       if (!ex) {
         toCreate.push(baseCreate);
         continue;
       }
-  
+
       if (mode === GenerateMode.SKIP_EXISTING) {
         skipped++;
         continue;
       }
-  
+
       if (ex.status === PaymentStatus.PAID) {
         skipped++;
         continue;
       }
-  
+
       toUpdate.push({
         id: ex.id,
         data: {
@@ -422,19 +414,16 @@ export class BillingService {
         },
       });
     }
-  
+
     // 5) Transaction: createMany + batch update
     await this.prisma.$transaction(async (tx) => {
       if (toCreate.length) {
         const res = await tx.payment.createMany({ data: toCreate, skipDuplicates: true });
         created = res.count;
-  
-        // created ids fetch (safe bulk)
-        // IN set bo‘yicha topamiz
+
         const createdRows = await tx.payment.findMany({
           where: {
             student: { schoolId },
-            plan,
             studentId: { in: studentIds },
             periodKey: { in: periodKeys },
           },
@@ -442,7 +431,7 @@ export class BillingService {
         });
         affectedIds.push(...createdRows.map((x) => x.id));
       }
-  
+
       if (toUpdate.length) {
         const updChunk = 50;
         for (let i = 0; i < toUpdate.length; i += updChunk) {
@@ -453,23 +442,22 @@ export class BillingService {
         affectedIds.push(...toUpdate.map((u) => u.id));
       }
     });
-  
+
     // 6) Notifications
     let notified = 0;
     if (sendNotifications && affectedIds.length) {
-      // sendBillingInvoiceNotices ichida p.periodKey ishlatiladi — meta fallback xolos
       const res = await this.notifications.sendBillingInvoiceNotices(affectedIds, {
-        plan,
+        plan: BillingPlan.MONTHLY, // meta fallback — notifications DB dan o'qiydi
         periodKey: 'ROLLING',
       });
       notified = res.totalSent;
     }
-  
+
     this.logger.log(
-      `[ROLLING_OPT] school=${schoolId} plan=${plan} created=${created} updated=${updated} skipped=${skipped} notified=${notified}`,
+      `[ROLLING_DUE] school=${schoolId} plan=MIXED created=${created} updated=${updated} skipped=${skipped} notified=${notified}`,
     );
-  
-    return { created, updated, skipped, notified, plan, strategy: 'ROLLING_DUE', daysBefore, amount };
+
+    return { created, updated, skipped, notified, plan: 'MIXED', strategy: 'ROLLING_DUE', daysBefore };
   }
 
   // --------------------------

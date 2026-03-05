@@ -1,15 +1,15 @@
-import { 
-  IsString, 
-  IsEmail, 
-  IsOptional, 
-  IsEnum, 
-  IsBoolean, 
-  IsDateString, 
-  ValidateNested, 
+import {
+  IsString,
+  IsEmail,
+  IsOptional,
+  IsEnum,
+  IsBoolean,
+  IsDateString,
+  ValidateNested,
   IsNotEmpty
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { Gender, ParentRelation } from '@prisma/client';
+import { BillingPlan, Gender, ParentRelation } from '@prisma/client';
 
 class ParentDto {
   @IsString()
@@ -99,6 +99,11 @@ export class CreateStudentDto {
   @IsString()
   @IsOptional()
   faceImage?: string; // Required! data:image/jpeg;base64,...
+
+  // Billing plan: MONTHLY (oylik) yoki YEARLY (yillik)
+  @IsEnum(BillingPlan)
+  @IsOptional()
+  billingPlan?: BillingPlan;
 }
 
 export class UpdateStudentDto {
@@ -159,4 +164,9 @@ export class UpdateStudentDto {
   @IsString()
   @IsOptional()
   faceImage?: string;
+
+  // Billing plan: MONTHLY (oylik) yoki YEARLY (yillik)
+  @IsEnum(BillingPlan)
+  @IsOptional()
+  billingPlan?: BillingPlan;
 }

@@ -122,6 +122,7 @@ export class StudentsService {
           photo: hasPhoto ? createStudentDto.photo : null,
           facePersonId: createStudentDto.facePersonId || null,
           enrollNumber,
+          billingPlan: createStudentDto.billingPlan ?? undefined,
         },
       });
   
@@ -253,6 +254,8 @@ export class StudentsService {
         throw new BadRequestException('enrollNumber can be assigned only after photo is uploaded');
       }
   
+      console.log('[DEBUG] billingPlan to save:', dto.billingPlan, '| type:', typeof dto.billingPlan);
+
       const student = await tx.student.update({
         where: { id },
         data: {
@@ -266,8 +269,11 @@ export class StudentsService {
           photo: incomingPhoto === undefined ? undefined : incomingPhoto,
           facePersonId: dto.facePersonId !== undefined ? this.cleanStr(dto.facePersonId) : undefined,
           enrollNumber: enrollNumberToSet,
+          billingPlan: dto.billingPlan ?? undefined,
         },
       });
+
+      console.log('[DEBUG] student.billingPlan after update:', student.billingPlan);
   
       // ✅ FIX: Parent link update — avval eski linklarni o'chiramiz, keyin yangi upsert
       if (dto.parent?.phone) {
