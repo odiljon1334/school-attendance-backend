@@ -1024,25 +1024,47 @@ export class WhatsappBotService {
   // ИЗВЛЕЧЕНИЕ ТЕКСТА / ID КНОПКИ из payload Whapi
   // ─────────────────────────────────────────────────────────
   private extractText(msg: any): string | null {
+    // Plain text
     if (msg.type === 'text') return msg.text?.body ?? null;
+
+    // Format A: type === 'interactive'  (older Whapi format)
     if (msg.type === 'interactive') {
       const ir = msg.interactive?.button_reply;
       const lr = msg.interactive?.list_reply;
       if (ir?.title) return ir.title;
       if (lr?.title) return lr.title;
     }
+
+    // Format B: type === 'reply'  (current Whapi webhook format)
+    // { type:"reply", reply:{ type:"buttons_reply", buttons_reply:{id,title} } }
+    if (msg.type === 'reply') {
+      const br = msg.reply?.buttons_reply;
+      const lr = msg.reply?.list_reply;
+      if (br?.title) return br.title;
+      if (lr?.title) return lr.title;
+    }
+
     return null;
   }
 
   private extractButtonId(msg: any): string | null {
+    const strip = (raw: string | null) =>
+      raw ? raw.replace(/^ButtonsV3:/i, '') : null;
+
+    // Format A: type === 'interactive'
     if (msg?.type === 'interactive') {
       const ir = msg.interactive?.button_reply;
       const lr = msg.interactive?.list_reply;
-      const raw = ir?.id ?? lr?.id ?? null;
-      if (!raw) return null;
-      // Whapi adds "ButtonsV3:" prefix to button IDs in webhook replies
-      return raw.replace(/^ButtonsV3:/i, '');
+      return strip(ir?.id ?? lr?.id ?? null);
     }
+
+    // Format B: type === 'reply'  ← actual Whapi webhook format
+    if (msg?.type === 'reply') {
+      const br = msg.reply?.buttons_reply;
+      const lr = msg.reply?.list_reply;
+      return strip(br?.id ?? lr?.id ?? null);
+    }
+
     return null;
   }
 }
