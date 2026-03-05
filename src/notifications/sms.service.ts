@@ -3,49 +3,27 @@ import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../redis/redis.service';
 import axios from 'axios';
 
-interface SmsGateway {
-  url: string;
-  username: string;
-  password: string;
-  dailyCount: number;
-  lastReset: Date;
-}
-
 @Injectable()
 export class SmsService {
   private readonly logger = new Logger(SmsService.name);
-  private currentIndex = 0;
-  private gateways: SmsGateway[] = [];
+  private readonly apiKey: string;
+  private readonly fromPhone: string;
+  private readonly apiUrl = 'https://api.httpsms.com/v1/messages/send';
+  private dailyCount = 0;
+  private lastReset = new Date();
 
   constructor(
     private configService: ConfigService,
-    private redis: RedisService,  // ← REDIS QO'SHILDI
+    private redis: RedisService,
   ) {
-    this.initGateways();
-  }
+    this.apiKey = this.configService.get<string>('HTTPSMS_API_KEY', '');
+    this.fromPhone = this.configService.get<string>('HTTPSMS_FROM_PHONE', '');
 
-  private initGateways() {
-    const gatewayUrls = this.configService
-      .get<string>('SMS_GATEWAYS', 'http://localhost:8080')
-      .split(',')
-      .map(url => url.trim())
-      .filter(Boolean);
-
-    const username = this.configService.get<string>('SMS_GATEWAY_USER', 'sms');
-    const password = this.configService.get<string>('SMS_GATEWAY_PASS', 'B4N_74WS');
-
-    this.gateways = gatewayUrls.map(url => ({
-      url,
-      username,
-      password,
-      dailyCount: 0,
-      lastReset: new Date(),
-    }));
-
-    this.logger.log(`SMS Gateway initialized with ${this.gateways.length} device(s)`);
-    this.gateways.forEach((g, i) => {
-      this.logger.log(`  Device ${i + 1}: ${g.url}`);
-    });
+    if (!this.apiKey) {
+      this.logger.warn('⚠️ HTTPSMS_API_KEY not configured!');
+    } else {
+      this.logger.log(`✅ httpSMS initialized. From: ${this.fromPhone}`);
+    }
   }
 
   // ==========================================
@@ -54,9 +32,9 @@ export class SmsService {
   async sendSms(phoneNumber: string, message: string, opts?: { type?: string; limitPerMin?: number }): Promise<boolean> {
     const type = opts?.type ?? 'GENERIC';
     const limit = opts?.limitPerMin ?? 3;
-  
+
     const rateLimit = await this.redis.checkSmsRateLimit(phoneNumber, limit, type);
-  
+
     if (!rateLimit.allowed) {
       this.logger.warn(
         `⚠️ Rate limit exceeded for ${phoneNumber} type=${type}. Remaining: ${rateLimit.remaining}. Resets in ${rateLimit.resetIn}s.`,
@@ -64,107 +42,75 @@ export class SmsService {
       return false;
     }
 
-    this.logger.log(
-      `Rate limit OK: ${phoneNumber} - ${rateLimit.remaining} remaining`
-    );
+    this.logger.log(`Rate limit OK: ${phoneNumber} - ${rateLimit.remaining} remaining`);
 
+    // WhatsApp link qo'shish (birinchi SMS da)
     const isFirst = await this.redis.isFirstSms(phoneNumber);
     if (isFirst) {
       const botPhone = this.configService.get<string>('WHATSAPP_BOT_PHONE', '');
-    if (botPhone) {
-      message += `\n\nWhatsApp орқали хабар олиш учун:\nhttps://wa.me/${botPhone}`;
+      if (botPhone) {
+        message += `\n\nWhatsApp орқали хабар олиш учун:\nhttps://wa.me/${botPhone}`;
+      }
     }
-  }
 
-    // ✅ 2. Gateway tanlash
-    if (this.gateways.length === 0) {
-      this.logger.error('No SMS gateways configured!');
+    if (!this.apiKey || !this.fromPhone) {
+      this.logger.error('❌ httpSMS not configured (HTTPSMS_API_KEY or HTTPSMS_FROM_PHONE missing)');
       return false;
     }
 
-    const gateway = this.gateways[this.currentIndex];
-    this.currentIndex = (this.currentIndex + 1) % this.gateways.length;
-
-    // Reset daily counter if new day
+    // Daily counter reset
     const now = new Date();
     if (
-      now.getDate() !== gateway.lastReset.getDate() ||
-      now.getMonth() !== gateway.lastReset.getMonth()
+      now.getDate() !== this.lastReset.getDate() ||
+      now.getMonth() !== this.lastReset.getMonth()
     ) {
-      gateway.dailyCount = 0;
-      gateway.lastReset = now;
+      this.dailyCount = 0;
+      this.lastReset = now;
     }
 
+    // Telefon raqamni +998... formatga o'tkazish
+    const toPhone = this.normalizePhone(phoneNumber);
+
     try {
-      // ✅ 3. SMS yuborish
       await axios.post(
-        `${gateway.url}/message`,
+        this.apiUrl,
         {
-          message: message,
-          phoneNumbers: [phoneNumber],
+          from: this.fromPhone,
+          to: toPhone,
+          content: message,
         },
         {
-          auth: {
-            username: gateway.username,
-            password: gateway.password,
+          headers: {
+            'x-api-key': this.apiKey,
+            'Content-Type': 'application/json',
           },
-          timeout: 8000,
-          headers: { 'Content-Type': 'application/json' },
+          timeout: 10000,
         },
       );
 
-      gateway.dailyCount++;
-
-      // ✅ 4. Redis counter yangilash
+      this.dailyCount++;
       await this.redis.incrementTodaySms();
 
-      this.logger.log(
-        `✅ SMS sent to ${phoneNumber} via ${gateway.url} (daily: ${gateway.dailyCount})`
-      );
+      this.logger.log(`✅ SMS sent to ${toPhone} via httpSMS (daily: ${this.dailyCount})`);
       return true;
     } catch (error) {
       this.logger.error(
-        `❌ Failed to send SMS to ${phoneNumber} via ${gateway.url}:`,
-        error.message,
+        `❌ Failed to send SMS to ${toPhone}:`,
+        error?.response?.data || error.message,
       );
-      return await this.sendWithFallback(phoneNumber, message, gateway.url);
+      return false;
     }
   }
 
   // ==========================================
-  // ✅ Fallback: boshqa gateway
+  // ✅ Telefon raqamni normalize qilish
   // ==========================================
-  private async sendWithFallback(
-    phoneNumber: string,
-    message: string,
-    failedUrl: string,
-  ): Promise<boolean> {
-    const otherGateways = this.gateways.filter(
-      g => g.url !== failedUrl && g.dailyCount < 1000,
-    );
-
-    for (const gateway of otherGateways) {
-      try {
-        const response = await axios.post(
-          `${gateway.url}/message`,
-          { message: message, phoneNumbers: [phoneNumber] },
-          {
-            auth: { username: gateway.username, password: gateway.password },
-            timeout: 5000,
-          },
-        );
-
-        if (response.status === 200) {
-          gateway.dailyCount++;
-          await this.redis.incrementTodaySms();
-          this.logger.log(`✅ Fallback success: ${gateway.url}`);
-          return true;
-        }
-      } catch (e) {
-        this.logger.warn(`Fallback gateway ${gateway.url} ham ishlamadi.`);
-      }
-    }
-    return false;
+  private normalizePhone(phone: string): string {
+    const digits = phone.replace(/\D/g, '');
+    if (phone.startsWith('+')) return phone;
+    if (digits.startsWith('998')) return `+${digits}`;
+    if (digits.length === 9) return `+998${digits}`;
+    return `+${digits}`;
   }
 
   // ==========================================
@@ -249,7 +195,7 @@ export class SmsService {
 
     return {
       count,
-      remaining: Math.max(0, 3 - count), // Max 3 per minute
+      remaining: Math.max(0, 3 - count),
       resetIn: ttl > 0 ? ttl : 0,
     };
   }
@@ -261,13 +207,11 @@ export class SmsService {
     const todayTotal = await this.getTodaySmsCount();
 
     return {
+      provider: 'httpSMS',
+      fromPhone: this.fromPhone,
+      configured: !!this.apiKey,
       todayTotal,
-      gateways: this.gateways.map((g, i) => ({
-        device: i + 1,
-        url: g.url,
-        dailyCount: g.dailyCount,
-        lastReset: g.lastReset,
-      })),
+      dailyCount: this.dailyCount,
     };
   }
 }
