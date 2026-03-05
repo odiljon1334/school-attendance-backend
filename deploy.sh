@@ -16,7 +16,7 @@ fi
 
 # 3) Build va ishga tushirish
 echo "🐳 Docker build va start..."
-docker compose -f docker-compose.server.yml up -d --build
+docker compose --env-file .env.prod -f docker-compose.server.yml up -d --build
 
 # 4) Eski imagelarni tozalash
 echo "🧹 Eski docker imagelarni tozalash..."
