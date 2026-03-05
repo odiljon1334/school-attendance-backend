@@ -125,13 +125,12 @@ export class WhatsappBotService {
   // ШАГ 1: ПРИВЕТСТВИЕ
   // ─────────────────────────────────────────────────────────
   private async startFlow(phone: string): Promise<void> {
-    // Qaytuvchi foydalanuvchi: whatsappPhone YOKI phone orqali topamiz
-    const parent = await this.prisma.parent.findFirst({
+    // Faqat avval WhatsApp bot orqali ro'yxatdan o'tgan (isWhatsappActive: true)
+    // foydalanuvchilarni avtomatik tanib olamiz — boshqalar telefon kiritishi kerak
+    const registeredParent = await this.prisma.parent.findFirst({
       where: {
-        OR: [
-          { whatsappPhone: phone },
-          { phone },
-        ],
+        whatsappPhone: phone,
+        isWhatsappActive: true,
       },
       include: {
         students: {
@@ -142,19 +141,24 @@ export class WhatsappBotService {
       },
     });
 
-    if (parent?.students?.length) {
-      // Вернувшийся пользователь
-      await this.state.update(phone, { state: 'VERIFIED', parentId: parent.id, phone });
+    if (registeredParent?.students?.length) {
+      // Qaytuvchi foydalanuvchi — avval ro'yxatdan o'tgan
+      await this.state.update(phone, {
+        state: 'VERIFIED',
+        parentId: registeredParent.id,
+        phone,
+      });
       return this.showMainMenu(phone);
     }
 
-    // Новый пользователь
+    // Yangi yoki hali WhatsApp bot orqali ro'yxatdan o'tmagan foydalanuvchi
+    // → telefon raqam so'raymiz
     await this.state.update(phone, { state: 'WAITING_PHONE' });
     await this.wa.sendText(
       phone,
       `👋 Здравствуйте!\n\n` +
         `🏫 Добро пожаловать в систему оплаты школы!\n\n` +
-        `Для регистрации введите ваш номер телефона:\n` +
+        `📲 Введите ваш номер телефона для регистрации:\n` +
         `Пример: +996700123456 или 0700123456`,
     );
   }
