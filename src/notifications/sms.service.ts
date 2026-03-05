@@ -100,7 +100,7 @@ export class SmsService {
       await axios.post(
         `${gateway.url}/message`,
         {
-          textMessage: { text: message },
+          message: message,
           phoneNumbers: [phoneNumber],
         },
         {
@@ -147,7 +147,7 @@ export class SmsService {
       try {
         const response = await axios.post(
           `${gateway.url}/message`,
-          { textMessage: { text: message }, phoneNumbers: [phoneNumber] },
+          { message: message, phoneNumbers: [phoneNumber] },
           {
             auth: { username: gateway.username, password: gateway.password },
             timeout: 5000,
