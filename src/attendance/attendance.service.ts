@@ -422,11 +422,12 @@ export class AttendanceService {
     const { person, attendance, isLate, lateMinutes, capturePhoto } = params;
     const canSend = await this.canSendNotification(person);
 
+    const TZ = 'Asia/Tashkent';
     const time = attendance.checkInTime.toLocaleTimeString('ru-RU', {
-      hour: '2-digit', minute: '2-digit',
+      hour: '2-digit', minute: '2-digit', timeZone: TZ,
     });
     const date = new Date().toLocaleDateString('ru-RU', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
+      day: '2-digit', month: '2-digit', year: 'numeric', timeZone: TZ,
     });
 
     const botPhone = this.configService.get<string>('WHATSAPP_BOT_PHONE') ?? '';
@@ -500,9 +501,10 @@ export class AttendanceService {
     const { person, attendance, capturePhoto } = params;
     const canSend = await this.canSendNotification(person);
 
-    const checkInTime = attendance.checkInTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    const checkOutTime = attendance.checkOutTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    const date = new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const TZ = 'Asia/Tashkent';
+    const checkInTime = attendance.checkInTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
+    const checkOutTime = attendance.checkOutTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
+    const date = new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: TZ });
 
     for (const parent of person.parents || []) {
       try {

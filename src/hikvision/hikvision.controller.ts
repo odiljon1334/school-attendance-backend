@@ -103,13 +103,14 @@ export class HikvisionController {
   @HttpCode(HttpStatus.OK)
   async handleFaceRecognitionWebhook(@Req() req: Request) {
     const ct = String(req.headers['content-type'] || '');
-    const lenHeader = req.headers['content-length'];
     const body = req.body as Buffer;
 
     console.log('================ HIKVISION WEBHOOK HIT ================');
+    console.log('Content-Type:', ct);
+    console.log('Body size:', body?.length ?? 0, 'bytes');
     const parsed = this.parseHikvisionPayload(ct, body);
     console.log('Parsed employeeNo:', parsed.employeeNo);
-    if (parsed.snapshotBytes) console.log('Snapshot bytes:', parsed.snapshotBytes.length);
+    console.log('Snapshot found:', !!parsed.snapshotBytes, parsed.snapshotBytes ? `(${parsed.snapshotBytes.length} bytes)` : '(none)');
 
     // ✅ always 200
     if (!parsed.employeeNo) {
@@ -156,7 +157,10 @@ export class HikvisionController {
         const obj = JSON.parse(body.toString('utf8'));
         const employeeNo = this.extractEmployeeNoFromObject(obj);
         const deviceId = this.extractDeviceIdFromObject(obj);
-        return { kind: 'json', employeeNo, deviceId, eventRaw: obj };
+        // JSON ichida base64 foto bo'lishi mumkin
+        const snapshotBytes = this.extractPhotoFromJsonObject(obj);
+        if (snapshotBytes) console.log('📸 Photo found in JSON body:', snapshotBytes.length, 'bytes');
+        return { kind: 'json', employeeNo, deviceId, eventRaw: obj, snapshotBytes };
       } catch {
         return { kind: 'unknown', eventRaw: body.toString('utf8') };
       }
@@ -204,9 +208,27 @@ export class HikvisionController {
           if (t.includes('<')) xmlText = t;
         }
 
-        // Snapshot image
-        if (!snap && (h.includes('image/jpeg') || h.includes('image/jpg'))) {
-          snap = p.body;
+        // Snapshot image — content-type bo'yicha YOKI JPEG magic bytes bilan
+        if (!snap) {
+          const isJpegContentType =
+            h.includes('image/jpeg') ||
+            h.includes('image/jpg') ||
+            h.includes('image/png');
+
+          // Content-Disposition da filename .jpg/.jpeg bo'lsa
+          const hasJpegFilename = /filename=["']?[^"'\s]*\.(jpg|jpeg|png)/i.test(h);
+
+          // JPEG magic bytes: FF D8 FF
+          const isJpegMagic =
+            p.body.length > 3 &&
+            p.body[0] === 0xff &&
+            p.body[1] === 0xd8 &&
+            p.body[2] === 0xff;
+
+          if (isJpegContentType || hasJpegFilename || isJpegMagic) {
+            snap = p.body;
+            console.log(`📸 Snapshot found: type="${h.split('\n')[0]}" size=${snap.length}`);
+          }
         }
       }
 
@@ -297,6 +319,39 @@ export class HikvisionController {
     m = xml.match(/<FPID>\s*([^<]+)\s*<\/FPID>/i);
     if (m?.[1]) return m[1].trim();
 
+    return undefined;
+  }
+
+  // ── JSON ichidan base64 foto qidirish ─────────────────
+  // Hikvision turli fieldlarda yuborishi mumkin
+  private extractPhotoFromJsonObject(obj: any): Buffer | undefined {
+    const b64 =
+      obj?.FacePicture ||
+      obj?.facePicture ||
+      obj?.pictureBase64 ||
+      obj?.PictureBase64 ||
+      obj?.FaceCapture ||
+      obj?.faceCapture ||
+      obj?.snapShot ||
+      obj?.snapshot ||
+      obj?.Snapshot ||
+      obj?.AccessControllerEvent?.FacePicture ||
+      obj?.AccessControllerEvent?.facePicture ||
+      obj?.AccessControllerEvent?.pictureBase64 ||
+      obj?.Events?.[0]?.FacePicture ||
+      obj?.Events?.[0]?.facePicture ||
+      obj?.Events?.[0]?.pictureBase64;
+
+    if (!b64 || typeof b64 !== 'string') return undefined;
+
+    try {
+      // "data:image/jpeg;base64,XXXX" formatdan tozalaymiz
+      const clean = b64.replace(/^data:image\/[a-z]+;base64,/, '');
+      const buf = Buffer.from(clean, 'base64');
+      if (buf.length > 100) return buf; // bo'sh bo'lmasa
+    } catch {
+      return undefined;
+    }
     return undefined;
   }
 

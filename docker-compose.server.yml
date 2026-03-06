@@ -68,6 +68,7 @@ services:
       REDIS_PORT: 6379
       PORT: 3001
       NODE_ENV: production
+      TZ: Asia/Tashkent
     depends_on:
       postgres:
         condition: service_healthy
