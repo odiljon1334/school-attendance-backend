@@ -24,7 +24,22 @@ async function bootstrap() {
     (globalThis as any).crypto = webcrypto as any;
   }
 
-  // ✅ 1. Avval raw body (webhook uchun)
+  // ✅ 0. Global request logger — barcha so'rovlarni ko'ramiz (debug uchun)
+  app.use((req: any, _res: any, next: any) => {
+    const size = req.headers['content-length'] ?? '?';
+    const ct = (req.headers['content-type'] ?? '').split(';')[0];
+    if (!req.url.startsWith('/auth') && !req.url.startsWith('/attendance/stats')) {
+      console.log(`📡 ${req.method} ${req.url}  size=${size}b  ct=${ct}`);
+    }
+    next();
+  });
+
+  // ✅ 1. Avval raw body — hikvision webhook + barcha noma'lum URL lar
+  app.use(
+    /^\/(hikvision|ISAPI|api|uploadPic|capture|snapshot|picture)/,
+    express.raw({ type: '*/*', limit: '25mb' }),
+  );
+  // Eski yo'l ham saqlaymiz
   app.use(
     '/hikvision/webhook/face-recognition',
     express.raw({ type: '*/*', limit: '25mb' }),
