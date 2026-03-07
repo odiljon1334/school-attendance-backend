@@ -105,25 +105,7 @@ export class HikvisionController {
     const ct = String(req.headers['content-type'] || '');
     const body = req.body as Buffer;
 
-    console.log('================ HIKVISION WEBHOOK HIT ================');
-    console.log('Content-Type:', ct);
-    console.log('Body size:', body?.length ?? 0, 'bytes');
-
-    // 🔍 TEMP DEBUG: raw body ni ko'rish uchun
-    if (body && body.length > 0 && body.length < 8000) {
-      console.log('--- RAW BODY START ---');
-      console.log(body.toString('utf8'));
-      console.log('--- RAW BODY END ---');
-    } else if (body && body.length >= 8000) {
-      console.log('--- RAW BODY (first 300 bytes) ---');
-      console.log(body.slice(0, 300).toString('utf8'));
-      console.log('--- RAW BODY HEX HEADER (first 16 bytes) ---');
-      console.log(body.slice(0, 16).toString('hex'));
-    }
-
     const parsed = this.parseHikvisionPayload(ct, body);
-    console.log('Parsed employeeNo:', parsed.employeeNo);
-    console.log('Snapshot found:', !!parsed.snapshotBytes, parsed.snapshotBytes ? `(${parsed.snapshotBytes.length} bytes)` : '(none)');
 
     // ✅ always 200
     if (!parsed.employeeNo) {
