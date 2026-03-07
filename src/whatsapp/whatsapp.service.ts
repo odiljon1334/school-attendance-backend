@@ -163,10 +163,15 @@ export class WhatsappService {
   async sendPhoto(to: string, photoBase64: string, caption?: string): Promise<void> {
     const chatId = this.toChatId(to);
     try {
-      // base64 → data URI formatiga o'tkazamiz (agar allaqachon data URI bo'lmasa)
-      const imageLink = photoBase64.startsWith('data:')
-        ? photoBase64
-        : `data:image/jpeg;base64,${photoBase64}`;
+      // URL, data URI, yoki base64 — hammasi qabul qilinadi
+      let imageLink: string;
+      if (photoBase64.startsWith('http://') || photoBase64.startsWith('https://')) {
+        imageLink = photoBase64; // to'g'ridan URL
+      } else if (photoBase64.startsWith('data:')) {
+        imageLink = photoBase64; // data URI
+      } else {
+        imageLink = `data:image/jpeg;base64,${photoBase64}`; // raw base64
+      }
 
       await this.http.post('/messages/image', {
         to: chatId,

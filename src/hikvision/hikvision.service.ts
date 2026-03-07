@@ -41,7 +41,7 @@ export class HikvisionService {
     const [student, teacher] = await Promise.all([
       this.prisma.student.findUnique({
         where: { enrollNumber: employeeNo },
-        select: { id: true, schoolId: true },
+        select: { id: true, schoolId: true, photo: true },
       }),
       this.prisma.teacher.findFirst({
         where: { enrollNumber: employeeNo },
@@ -50,12 +50,17 @@ export class HikvisionService {
     ]);
 
     if (student) {
+      // Terminal rasm yubormasa → enrollment fotosini fallback sifatida ishlatamiz
+      const photoToSend = capturePhoto ?? student.photo ?? undefined;
+      if (!capturePhoto && student.photo) {
+        this.logger.log(`📸 Using enrollment photo for student (no terminal snapshot)`);
+      }
       return this.attendanceService.handleTurnstileEvent({
         personId: `STU_${student.id}`,
         deviceId,
         timestamp: now.toISOString(),
         eventType: 'FACE_RECOGNITION',
-        capturePhoto,
+        capturePhoto: photoToSend,
       });
     }
 

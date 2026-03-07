@@ -914,19 +914,26 @@ export class TelegramService {
     if (!this.bot) throw new Error('Telegram bot not initialized');
 
     try {
-      let cleanBase64 = photoBase64;
+      let photoInput: { source: Buffer } | { url: string };
 
-      if (photoBase64.includes('data:image')) {
-        const base64Parts = photoBase64.split(',');
-        if (base64Parts.length > 1) cleanBase64 = base64Parts[1];
+      // URL bo'lsa — to'g'ridan yuboramiz (enrollment photo URL)
+      if (photoBase64.startsWith('http://') || photoBase64.startsWith('https://')) {
+        photoInput = { url: photoBase64 };
+      } else {
+        // base64 yoki data URI
+        let cleanBase64 = photoBase64;
+        if (photoBase64.includes('data:image')) {
+          const base64Parts = photoBase64.split(',');
+          if (base64Parts.length > 1) cleanBase64 = base64Parts[1];
+        }
+        const buffer = Buffer.from(cleanBase64, 'base64');
+        if (buffer.length === 0) throw new Error('Invalid or empty image data');
+        photoInput = { source: buffer };
       }
-
-      const buffer = Buffer.from(cleanBase64, 'base64');
-      if (buffer.length === 0) throw new Error('Invalid or empty image data');
 
       await this.bot.telegram.sendPhoto(
         chatId,
-        { source: buffer },
+        photoInput,
         { caption, parse_mode: 'HTML' },
       );
 
