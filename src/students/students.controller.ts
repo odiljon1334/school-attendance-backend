@@ -105,8 +105,6 @@ export class StudentsController {
   )
   @HttpCode(HttpStatus.OK)
   remove(@Param('id') id: string) {
-    console.log('remove: =>', id);
-    const response = this.studentsService.remove(id);
-    return response
+    return this.studentsService.remove(id);
   }
 }

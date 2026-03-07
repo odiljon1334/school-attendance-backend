@@ -12,9 +12,6 @@ export class PayrollService {
    */
   async calculateMonthlyPayroll(teacherId: string, month: string) {
     // Get teacher schedule
-    console.log('PAYROLL teacherId=', teacherId, 'month=', month);
-    const s = await this.prisma.teacherSchedule.findFirst({ where: { teacherId } });
-    console.log('SCHEDULE FOUND?', !!s);
     const schedule = await this.prisma.teacherSchedule.findUnique({
       where: { teacherId },
     });
@@ -306,8 +303,6 @@ export class PayrollService {
    */
   // ✅ To'g'ri — create yoki update, ikkalasi ham ishlaydi
   async setTeacherSchedule(teacherId: string, scheduleData: any) {
-  console.log('SCHEDULE DATA:', JSON.stringify(scheduleData));
-  console.log('TEACHER ID:', teacherId);
   return this.prisma.teacherSchedule.upsert({
     where: { teacherId },
     create: { teacherId, ...scheduleData },

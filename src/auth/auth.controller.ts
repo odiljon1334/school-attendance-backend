@@ -8,6 +8,7 @@ import {
   HttpStatus,
   Get,
 } from '@nestjs/common';
+import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto, RegisterDto, ChangePasswordDto } from './dto/auth.dto';
 import { JwtAuthGuard } from './guards/jwt.auth.guards';
@@ -26,7 +27,9 @@ export class AuthController {
     return this.authService.register(registerDto);
   }
 
+  // 5 urinish / 60 soniya — brute-force himoya
   @Post('login')
+  @Throttle({ short: { ttl: 60000, limit: 5 } })
   @HttpCode(HttpStatus.OK)
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
@@ -69,10 +72,11 @@ export class AuthController {
   // ✅ NEW: SCHOOL ENDPOINTS
   // ==========================================
 
+  // 5 urinish / 60 soniya — brute-force himoya
   @Post('school/login')
+  @Throttle({ short: { ttl: 60000, limit: 5 } })
   @HttpCode(HttpStatus.OK)
   async loginSchool(@Body() loginDto: LoginDto) {
-    console.log('School login api:', loginDto);
     return this.authService.loginSchool(loginDto);
   }
 

@@ -93,7 +93,6 @@ export class NotificationsController {
   @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
   @HttpCode(HttpStatus.OK)
   markAsRead(@Param('id') id: string) {
-    console.log('NotificationRead: =>', id);
     return this.notificationsService.markAsRead(id);
   }
   
@@ -106,7 +105,6 @@ export class NotificationsController {
 )
 @HttpCode(HttpStatus.OK)
 broadcast(@Body() dto: BroadcastDto, @Req() req: any) {
-  console.log('notificationBroadcast: =>', dto, req.user)
   return this.notificationsService.broadcast(dto, req.user);
 }
 

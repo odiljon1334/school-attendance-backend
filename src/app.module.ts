@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule } from '@nestjs/config';
@@ -31,6 +33,11 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
       isGlobal: true,
       envFilePath: '.env',
     }),
+    // ✅ Rate limiting: login uchun 10 urinish/60 soniya
+    ThrottlerModule.forRoot([
+      { name: 'short', ttl: 60000, limit: 10 },   // 10 req/60s
+      { name: 'long',  ttl: 3600000, limit: 100 }, // 100 req/soat
+    ]),
     PrismaModule,
     AuthModule,
     DistrictsModule,

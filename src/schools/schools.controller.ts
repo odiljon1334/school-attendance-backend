@@ -27,7 +27,6 @@ export class SchoolsController {
   @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN)
   @HttpCode(HttpStatus.CREATED)
   create(@Body() createSchoolDto: CreateSchoolDto) {
-    console.log('school create endpoint: =>', createSchoolDto);
     return this.schoolsService.create(createSchoolDto);
   }
 

@@ -28,8 +28,6 @@ export class PayrollController {
       hourlyRate: number;
     },
   ) {
-    console.log('BODY:', JSON.stringify(scheduleData));
-    console.log('teacherId:', teacherId);
     return this.payrollService.setTeacherSchedule(teacherId, scheduleData);
   }
 

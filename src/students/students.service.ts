@@ -254,7 +254,6 @@ export class StudentsService {
         throw new BadRequestException('enrollNumber can be assigned only after photo is uploaded');
       }
   
-      console.log('[DEBUG] billingPlan to save:', dto.billingPlan, '| type:', typeof dto.billingPlan);
 
       const student = await tx.student.update({
         where: { id },
@@ -273,7 +272,6 @@ export class StudentsService {
         },
       });
 
-      console.log('[DEBUG] student.billingPlan after update:', student.billingPlan);
   
       // ✅ FIX: Parent link update — avval eski linklarni o'chiramiz, keyin yangi upsert
       if (dto.parent?.phone) {
@@ -301,7 +299,6 @@ export class StudentsService {
         await this.linkParentSmsSingle(tx, student.id, parent.id, (dto.parent.relationship as any) || 'PARENT');
       }
 
-      console.log('UPDATE DTO keys:', Object.keys(dto));
   
       return tx.student.findUnique({
         where: { id: student.id },

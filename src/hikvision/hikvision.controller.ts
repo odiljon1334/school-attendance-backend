@@ -13,6 +13,7 @@ import {
   Req,
   GoneException,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
 import { HikvisionService } from './hikvision.service';
@@ -23,6 +24,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '@prisma/client';
 
 @Controller('hikvision')
+@SkipThrottle() // webhook — terminal yuboradi, limit kerak emas
 export class HikvisionController {
   constructor(private readonly hikvisionService: HikvisionService) {}
 

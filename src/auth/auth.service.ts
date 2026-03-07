@@ -324,8 +324,7 @@ export class AuthService {
       data: { password: hashedPassword },
     });
 
-    // TODO: Send email with tempPassword
-    console.log(`Temporary password for ${email}: ${tempPassword}`);
+    // TODO: Send tempPassword via SMS/email to user
 
     return { message: 'Password reset instructions sent' };
   }
