@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { Telegraf, Context, Markup } from 'telegraf';
 import { ConfigService } from '@nestjs/config';
+import { SmsService } from './sms.service';
 
 @Injectable()
 export class TelegramService {
@@ -13,6 +14,7 @@ export class TelegramService {
     private prisma: PrismaService,
     private redis: RedisService,
     private configService: ConfigService,
+    private sms: SmsService,
   ) {
     const token = this.configService.get('TELEGRAM_BOT_TOKEN');
     if (token) {
@@ -108,6 +110,10 @@ export class TelegramService {
         switch (session.state) {
           case 'WAITING_PARENT_PHONE':
             await this.handleParentPhone(ctx, text, chatId, telegramId);
+            break;
+
+          case 'WAITING_PARENT_OTP':
+            await this.handleParentOtp(ctx, text, chatId, telegramId, session);
             break;
 
           case 'WAITING_TEACHER_PHONE':
@@ -290,36 +296,22 @@ export class TelegramService {
   }
 
   // ==========================================
-  // PARENT REGISTRATION (M:N FIX)
+  // PARENT REGISTRATION — OTP BOSQICH 1: telefon qabul qilish
   // ==========================================
-  private async handleParentPhone(ctx: Context, phone: string, chatId: string, telegramId: string) {
+  private async handleParentPhone(ctx: Context, phone: string, chatId: string, _telegramId: string) {
     if (!phone.match(/^\+(998|996)\d{9}$|^\+7\d{10}$/)) {
       await ctx.reply('❌ Неправильный формат.\nФормат: +998901234567 или +996700123456');
       return;
     }
 
     try {
-      // очистить старую привязку по telegramId (если была)
-      await this.prisma.parent.updateMany({
-        where: { telegramId },
-        data: { telegramId: null, isTelegramActive: false, telegramChatId: null, telegramUsername: null },
-      });
-
-      const parent = await this.prisma.parent.findFirst({
+      // DB da ota-onani qidiramiz
+      const parentCheck = await this.prisma.parent.findFirst({
         where: { phone },
-        include: {
-          students: {
-            include: {
-              student: {
-                include: { class: true, school: true },
-              },
-            },
-            orderBy: { createdAt: 'asc' },
-          },
-        },
+        include: { students: { select: { studentId: true } } },
       });
 
-      if (!parent) {
+      if (!parentCheck) {
         await ctx.reply(
           '❌ Номер телефона не найден в базе данных.\n\n' +
             'Пожалуйста, обратитесь в администрацию школы.',
@@ -327,8 +319,7 @@ export class TelegramService {
         return;
       }
 
-      const firstStudent = this.pickFirstLinkedStudent(parent);
-      if (!firstStudent) {
+      if (!parentCheck.students.length) {
         await ctx.reply(
           '❌ К этому номеру телефона не привязан ни один ученик.\n\n' +
             'Пожалуйста, обратитесь в администрацию школы.',
@@ -336,30 +327,139 @@ export class TelegramService {
         return;
       }
 
+      // ── OTP generatsiya ──
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      await this.redis.setCache(`otp:tg:${chatId}`, { code, parentPhone: phone }, 300);
+
+      // ── SMS yuborish ──
+      const smsSent = await this.sms.sendSms(
+        phone,
+        `Ваш код подтверждения Telegram: ${code}\nДействителен 5 минут. Не сообщайте никому.`,
+        { type: 'OTP', limitPerMin: 5 },
+      );
+
+      // ── Session yangilash ──
+      await this.updateSession(chatId, 'WAITING_PARENT_OTP', { pendingPhone: phone });
+
+      if (smsSent) {
+        await ctx.reply(
+          `📲 На номер *${phone}* отправлен SMS\\-код\\.\n\n` +
+            `Введите 6\\-значный код для подтверждения:\n\n` +
+            `⚠️ Код действителен 5 минут\\.`,
+          { parse_mode: 'MarkdownV2' },
+        );
+      } else {
+        await ctx.reply(
+          `⚠️ Не удалось отправить SMS на ${phone}.\n\n` +
+            `Попробуйте ещё раз или обратитесь в администрацию школы.`,
+        );
+        await this.updateSession(chatId, 'WAITING_PARENT_PHONE');
+      }
+    } catch (error) {
+      this.logger.error('Parent phone input error:', error);
+      await ctx.reply('❌ Произошла ошибка.');
+    }
+  }
+
+  // ==========================================
+  // PARENT REGISTRATION — OTP BOSQICH 2: kodni tekshirish
+  // ==========================================
+  private async handleParentOtp(
+    ctx: Context,
+    text: string,
+    chatId: string,
+    telegramId: string,
+    session: any,
+  ) {
+    const code = text.trim();
+
+    if (!/^\d{6}$/.test(code)) {
+      await ctx.reply('❌ Введите 6-значный код из SMS.\n\nДля сброса нажмите /start');
+      return;
+    }
+
+    try {
+      const otpData = (await this.redis.getCache(`otp:tg:${chatId}`)) as {
+        code: string;
+        parentPhone: string;
+      } | null;
+
+      // OTP muddati o'tgan
+      if (!otpData) {
+        await this.updateSession(chatId, 'WAITING_PARENT_PHONE');
+        await ctx.reply(
+          '⏰ Время действия кода истекло.\n\nВведите ваш номер телефона снова:',
+        );
+        return;
+      }
+
+      // Noto'g'ri kod
+      if (otpData.code !== code) {
+        await ctx.reply(
+          '❌ Неверный код. Проверьте SMS и попробуйте ещё раз.\n\nДля сброса нажмите /start',
+        );
+        return;
+      }
+
+      const phone = session?.data?.pendingPhone ?? otpData.parentPhone;
+
+      // ── Eski bog'liqliklarni tozalaymiz ──
+      await this.prisma.parent.updateMany({
+        where: { telegramId },
+        data: { telegramId: null, isTelegramActive: false, telegramChatId: null, telegramUsername: null },
+      });
+
+      // ── To'liq ma'lumot yuklaymiz ──
+      const parent = await this.prisma.parent.findFirst({
+        where: { phone },
+        include: {
+          students: {
+            include: {
+              student: { include: { class: true, school: true } },
+            },
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+      });
+
+      if (!parent) {
+        await this.updateSession(chatId, 'WAITING_PARENT_PHONE');
+        await ctx.reply('❌ Родитель не найден. Введите номер телефона снова.');
+        return;
+      }
+
+      // ── Telegram bog'laymiz ──
       await this.prisma.parent.update({
         where: { id: parent.id },
         data: {
           telegramId,
           telegramChatId: chatId,
-          telegramUsername: ctx.from.username || '',
+          telegramUsername: ctx.from?.username || '',
           isTelegramActive: true,
         },
       });
 
+      // ── OTP ni o'chiramiz ──
+      await this.redis.del(`otp:tg:${chatId}`);
+
+      // ── Session yangilash ──
       await this.updateSession(chatId, 'VERIFIED_PARENT', { parentId: parent.id });
 
+      const firstStudent = this.pickFirstLinkedStudent(parent);
       await ctx.reply(
-        `✅ Регистрация прошла успешно!\n\n` +
-          `👤 Ваш ребёнок: ${firstStudent.firstName} ${firstStudent.lastName}\n` +
-          `📚 Класс: ${firstStudent.class.grade}-${firstStudent.class.section}\n` +
+        `✅ Телефон подтверждён! Регистрация прошла успешно!\n\n` +
+          (firstStudent
+            ? `👤 Ваш ребёнок: ${firstStudent.firstName} ${firstStudent.lastName}\n` +
+              `📚 Класс: ${firstStudent.class.grade}-${firstStudent.class.section}\n`
+            : '') +
           `📱 Телефон: ${phone}\n\n` +
           `Теперь вы будете получать автоматические уведомления! ✅`,
       );
 
       await this.showParentMenu(ctx);
     } catch (error) {
-      this.logger.error('Parent registration error:', error);
-      await ctx.reply('❌ Произошла ошибка.');
+      this.logger.error('Parent OTP verification error:', error);
+      await ctx.reply('❌ Произошла ошибка при проверке кода.');
     }
   }
 

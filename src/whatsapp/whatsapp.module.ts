@@ -7,15 +7,17 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { RedisModule } from '../redis/redis.module';
 import { ConfigModule } from '@nestjs/config';
 import { FreedomPayService } from 'src/payments/freedom-pay.service';
+import { SmsService } from '../notifications/sms.service';
 
 @Module({
   imports: [PrismaModule, RedisModule, ConfigModule],
   controllers: [WhatsappController],
   providers: [
-    WhatsappService, 
-    WhatsappStateService, 
+    WhatsappService,
+    WhatsappStateService,
     WhatsappBotService,
     FreedomPayService,
+    SmsService,          // OTP SMS yuborish uchun
   ],
   exports: [WhatsappService, WhatsappStateService, WhatsappBotService],
 })

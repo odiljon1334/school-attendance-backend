@@ -7,6 +7,7 @@ import { RedisService } from '../redis/redis.service';
 export type WaState =
   | 'START'
   | 'WAITING_PHONE'
+  | 'WAITING_OTP'          // OTP tasdiqlash kutilmoqda
   | 'SELECT_CHILD'
   | 'SELECT_PLAN'
   | 'CONFIRM_PAYMENT'
@@ -24,6 +25,7 @@ export interface WaChild {
 export interface WaSession {
   state: WaState;
   phone?: string;           // verified parent phone (DB da)
+  pendingPhone?: string;    // OTP jarayonida tasdiqlash kutilayotgan telefon raqami
   parentId?: string;
   children?: WaChild[];
   selectedStudentId?: string;
@@ -104,7 +106,12 @@ export class WhatsappStateService {
   // HELPERS
   // ─────────────────────────────────────────────────────────
   isVerified(session: WaSession | null): boolean {
-    return !!(session?.parentId && session.state !== 'WAITING_PHONE' && session.state !== 'START');
+    return !!(
+      session?.parentId &&
+      session.state !== 'WAITING_PHONE' &&
+      session.state !== 'WAITING_OTP' &&
+      session.state !== 'START'
+    );
   }
 
   isInPaymentFlow(session: WaSession | null): boolean {
