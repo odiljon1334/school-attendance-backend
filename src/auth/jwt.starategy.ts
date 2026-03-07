@@ -54,6 +54,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         email: true,
         role: true,
         status: true,
+        teacher: { select: { schoolId: true } },
       },
     });
 
@@ -71,6 +72,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       email: user.email,
       role: user.role,
       type: 'USER',
+      // TEACHER va DIRECTOR uchun o'z maktabini bilamiz
+      schoolId: user.teacher?.schoolId ?? undefined,
     };
   }
 }
