@@ -58,8 +58,8 @@ export class CsvImportService {
   private parseGender(raw: string): Gender | null {
     const v = (raw ?? '').toString().trim().toLowerCase();
     if (!v) return null;
-    if (['male', 'erkak', 'malchik', 'boy', 'ogil', 'm'].includes(v)) return Gender.MALE;
-    if (['female', 'qiz', 'devochka', 'girl', 'ayol', 'f'].includes(v)) return Gender.FEMALE;
+    if (['male', 'erkak', 'malchik', '\u043c\u0430\u043b\u044c\u0447\u0438\u043a', 'boy', 'ogil', 'm'].includes(v)) return Gender.MALE;
+    if (['female', 'qiz', 'devochka', '\u0434\u0435\u0432\u043e\u0447\u043a\u0430', 'girl', 'ayol', 'f'].includes(v)) return Gender.FEMALE;
     // Kiril: m/zh harflari
     if (v.startsWith('m') && v.length <= 8) return Gender.MALE;
     if (v.startsWith('f') || v.startsWith('q') || v === 'd') return Gender.FEMALE;
