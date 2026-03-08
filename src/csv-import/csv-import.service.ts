@@ -1,11 +1,15 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import * as Papa from 'papaparse';
 import { Prisma, Gender } from '@prisma/client';
 
 @Injectable()
 export class CsvImportService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private redis: RedisService,
+  ) {}
 
   // ==========================================
   // ✅ PHONE FORMAT HELPER - Qirg'iziston
@@ -288,6 +292,9 @@ export class CsvImportService {
         results.errors.push({ row: results.total, data: row, error: e?.message || String(e) });
       }
     }
+
+    // Yangi classlar yaratilgan bo'lishi mumkin — cache'ni tozalaymiz
+    await this.redis.deleteCachePattern(`classes:all:${schoolId}:*`);
 
     return results;
   }

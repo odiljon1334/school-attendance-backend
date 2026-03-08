@@ -9,6 +9,13 @@ export class ClassesService {
     private redis: RedisService,
   ) {}
 
+  private async invalidateClassCache(schoolId?: string) {
+    if (schoolId) {
+      await this.redis.deleteCachePattern(`classes:all:${schoolId}:*`);
+    }
+    await this.redis.deleteCachePattern('classes:all:global:*');
+  }
+
   async create(createClassDto: any) {
     // Check if class already exists
     const existing = await this.prisma.class.findFirst({
@@ -26,7 +33,7 @@ export class ClassesService {
       );
     }
 
-    return this.prisma.class.create({
+    const result = await this.prisma.class.create({
       data: {
         schoolId: createClassDto.schoolId,
         grade: createClassDto.grade,
@@ -39,14 +46,12 @@ export class ClassesService {
       include: {
         school: true,
         _count: { select: { students: true } },
-        // ✅ QO'SHILDI: O'qituvchini ko'rsatish uchun
-        teacherClasses: {
-          include: {
-            teacher: true
-          }
-        }
+        teacherClasses: { include: { teacher: true } },
       },
     });
+
+    await this.invalidateClassCache(createClassDto.schoolId);
+    return result;
   }
 
   async findAll(schoolId?: string, academicYear?: string) {
@@ -139,27 +144,25 @@ export class ClassesService {
       throw new NotFoundException(`Class with ID ${id} not found`);
     }
 
-    return this.prisma.class.update({
-    where: { id },
-    data: {
-      grade: updateClassDto.grade,
-      section: updateClassDto.section,
-      academicYear: updateClassDto.academicYear,
-      shift: updateClassDto.shift ?? undefined,
-      startTime: updateClassDto.startTime ?? undefined,
-      endTime: updateClassDto.endTime ?? undefined,
-    },
-    include: {
-      school: true,
-      _count: { select: { students: true } },
-      // ✅ QO'SHILDI: Update dan keyin ham ma'lumotni qaytarish uchun
-      teacherClasses: {
-        include: {
-          teacher: true
-        }
-      }
-    },
-  });
+    const result = await this.prisma.class.update({
+      where: { id },
+      data: {
+        grade: updateClassDto.grade,
+        section: updateClassDto.section,
+        academicYear: updateClassDto.academicYear,
+        shift: updateClassDto.shift ?? undefined,
+        startTime: updateClassDto.startTime ?? undefined,
+        endTime: updateClassDto.endTime ?? undefined,
+      },
+      include: {
+        school: true,
+        _count: { select: { students: true } },
+        teacherClasses: { include: { teacher: true } },
+      },
+    });
+
+    await this.invalidateClassCache(existing.schoolId ?? undefined);
+    return result;
   }
 
   async remove(id: string) {
@@ -183,6 +186,7 @@ export class ClassesService {
     }
 
     await this.prisma.class.delete({ where: { id } });
+    await this.invalidateClassCache(cls.schoolId ?? undefined);
     return { message: 'Class deleted successfully' };
   }
 }
