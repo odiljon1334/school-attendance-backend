@@ -92,6 +92,7 @@ export class AttendanceService {
 
       await this.redis.del(...keysToDelete);
       await this.redis.deleteCachePattern(`attendance:today:${schoolId}:*`);
+      await this.redis.deleteCachePattern(`classes:all:${schoolId}:*`);
 
       this.logger.log(`✅ Cache invalidated for school: ${schoolId}`);
     } catch (error) {
