@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TurnstileService } from '../turnstile/turnstile.service';
+import { RedisService } from '../redis/redis.service';
 import { CreateStudentDto } from './dto/student.dto';
 import { UpdateStudentDto } from './dto/student.dto';
 import * as bcrypt from 'bcrypt';
@@ -18,6 +19,7 @@ export class StudentsService {
   constructor(
     private prisma: PrismaService,
     private turnstileService: TurnstileService,
+    private redis: RedisService,
   ) {}
 
   private async nextStudentEnrollNumber(tx: PrismaService, schoolId: string) {
@@ -336,12 +338,15 @@ export class StudentsService {
       const otherLinks = await this.prisma.studentParent.count({
         where: { parentId },
       });
-  
+
       if (otherLinks === 0) {
         await this.prisma.parent.delete({ where: { id: parentId } });
       }
     }
-  
+
+    // Invalidate class cache so counts update immediately
+    await this.redis.deleteCachePattern(`classes:all:${student.schoolId}:*`);
+
     return { message: 'Student deleted successfully' };
   }
 

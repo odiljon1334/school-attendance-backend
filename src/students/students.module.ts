@@ -4,12 +4,14 @@ import { StudentsController } from './students.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { HikvisionModule } from '../hikvision/hikvision.module'; // ← Import
 import { TurnstileModule } from 'src/turnstile/turnstile.module';
+import { RedisModule } from '../redis/redis.module';
 
 @Module({
   imports: [
     PrismaModule,
     HikvisionModule,
     TurnstileModule,
+    RedisModule,
   ],
   controllers: [StudentsController],
   providers: [StudentsService],
