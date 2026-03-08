@@ -153,7 +153,7 @@ export class StudentsService {
         );
       }
   
-      return tx.student.findUnique({
+      const result = await tx.student.findUnique({
         where: { id: student.id },
         include: {
           user: true,
@@ -162,6 +162,10 @@ export class StudentsService {
           parents: { include: { parent: true } },
         },
       });
+
+      await this.redis.deleteCachePattern(`classes:all:${createStudentDto.schoolId}:*`);
+
+      return result;
     });
   }
 
