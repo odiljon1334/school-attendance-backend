@@ -60,7 +60,8 @@ export class CreateStudentDto {
   dateOfBirth?: string;
 
   @IsEnum(Gender)
-  gender: Gender;
+  @IsOptional()
+  gender?: Gender;
 
   @IsString()
   @IsOptional()

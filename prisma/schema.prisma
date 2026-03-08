@@ -160,7 +160,7 @@ model Student {
   lastName    String
   middleName  String?
   dateOfBirth DateTime?
-  gender      Gender
+  gender      Gender?
   phone       String?
 
   telegramId       String? @unique
@@ -233,6 +233,7 @@ model Teacher {
   firstName String?
   lastName  String?
   phone     String?
+  gender    Gender?
   subjects  String[] @default([])
 
   turnstileIdentities TurnstileIdentity[]

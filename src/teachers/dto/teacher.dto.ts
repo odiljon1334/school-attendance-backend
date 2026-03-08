@@ -5,6 +5,7 @@ import {
   IsUUID,
   IsEnum,
 } from 'class-validator';
+import { Gender } from '@prisma/client';
 
 enum TeacherRole {
   TEACHER = 'TEACHER',
@@ -58,6 +59,10 @@ export class CreateTeacherDto {
   telegramChatId?: string;
 
 
+  @IsEnum(Gender)
+  @IsOptional()
+  gender?: Gender;
+
   @IsString()
   @IsOptional()
   enrollNumber?: string;
@@ -104,6 +109,10 @@ export class UpdateTeacherDto {
   @IsString()
   @IsOptional()
   facePersonId?: string;
+
+  @IsEnum(Gender)
+  @IsOptional()
+  gender?: Gender;
 
   @IsString()
   @IsOptional()

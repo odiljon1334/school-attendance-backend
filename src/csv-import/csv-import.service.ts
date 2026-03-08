@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as Papa from 'papaparse';
-import { Prisma } from '@prisma/client';
+import { Prisma, Gender } from '@prisma/client';
 
 @Injectable()
 export class CsvImportService {
@@ -48,8 +48,22 @@ export class CsvImportService {
   }
 
   private makeImportKey(schoolId: string, rowNumber: number) {
-    // UNIQUE kolliziya bo‘lmasin deb random qo‘shdik
+    // UNIQUE kolliziya bo'lmasin deb random qo'shdik
     return `${schoolId}:${Date.now()}:${rowNumber}:${Math.random().toString(16).slice(2)}`;
+  }
+
+  // ==========================================
+  // ✅ GENDER PARSER
+  // ==========================================
+  private parseGender(raw: string): Gender | null {
+    const v = (raw ?? '').toString().trim().toLowerCase();
+    if (!v) return null;
+    if (['male', 'erkak', 'malchik', 'boy', 'ogil', 'm'].includes(v)) return Gender.MALE;
+    if (['female', 'qiz', 'devochka', 'girl', 'ayol', 'f'].includes(v)) return Gender.FEMALE;
+    // Kiril: m/zh harflari
+    if (v.startsWith('m') && v.length <= 8) return Gender.MALE;
+    if (v.startsWith('f') || v.startsWith('q') || v === 'd') return Gender.FEMALE;
+    return null;
   }
 
   // ==========================================
@@ -81,6 +95,7 @@ export class CsvImportService {
         const middleName = this.pick(row, ['Sharif', 'Отчество', 'Otasining ismi']).trim();
         const phoneRaw = this.normalizePhoneRaw(this.pick(row, ['Telefon', 'Телефон']));
         const phone = this.formatPhone(phoneRaw);
+        const gender = this.parseGender(this.pick(row, ['Jinsi', 'Пол', 'Gender']));
 
         // terminal ID (employeeNo)
         const enrollNumber =
@@ -90,7 +105,7 @@ export class CsvImportService {
           throw new Error('Ism va Familiya majburiy');
         }
 
-        // enrollNumber duplicate check (agar bo‘lsa)
+        // enrollNumber duplicate check (agar bo'lsa)
         if (enrollNumber) {
         const existingEnroll = await this.prisma.teacher.findUnique({
         where: { enrollNumber },
@@ -107,6 +122,7 @@ export class CsvImportService {
             firstName,
             lastName,
             phone: phone || undefined,
+            gender: gender ?? undefined,
             type: 'TEACHER',
             enrollNumber,
           },
@@ -176,6 +192,7 @@ export class CsvImportService {
         // Parent phone: "Телефон" yoki "Telefon"
         const parentPhoneRaw = this.normalizePhoneRaw(this.pick(row, ['Телефон', 'Telefon', 'Phone']));
         const parentPhone = this.formatPhone(parentPhoneRaw);
+        const gender = this.parseGender(this.pick(row, ['Jinsi', 'Пол', 'Gender']));
 
         // ✅ Minimal required
         if (!classSection || !firstName || !lastName) {
@@ -213,9 +230,9 @@ export class CsvImportService {
               classId: classRecord.id,
               firstName,
               lastName,
-              middleName: null, // studentga shart emas
+              middleName: null,
               phone: null,
-              gender: 'MALE',
+              gender: gender ?? undefined,
               photo: null,
               enrollNumber: null,
               importKey,
@@ -228,7 +245,7 @@ export class CsvImportService {
             if (Array.isArray(target) && target.includes('schoolId')) {
               throw new Error(
                 `Schema xato: Student modelida "@@unique([schoolId])" bor. ` +
-                  `Buni olib tashlang, aks holda bir maktabga 1 tadan ko‘p student qo‘sha olmaysiz.`,
+                  `Buni olib tashlang, aks holda bir maktabga 1 tadan ko'p student qo'sha olmaysiz.`,
               );
             }
             throw new Error(`Unique constraint: ${Array.isArray(target) ? target.join(',') : String(target)}`);
@@ -285,7 +302,7 @@ export class CsvImportService {
     const fields = parsed.meta.fields || [];
     const errors: string[] = [];
 
-    // RU yoki UZ bo‘lishi mumkin
+    // RU yoki UZ bo'lishi mumkin
     const requiredAny = [
       ['Familiya', 'Фамилия'],
       ['Ism', 'Имя'],
@@ -294,7 +311,7 @@ export class CsvImportService {
 
     requiredAny.forEach((variants) => {
       const ok = variants.some((v) => fields.includes(v));
-      if (!ok) errors.push(`Majburiy kolonka yo‘q: ${variants.join(' / ')}`);
+      if (!ok) errors.push(`Majburiy kolonka yo'q: ${variants.join(' / ')}`);
     });
 
     return { valid: errors.length === 0, errors };
@@ -315,7 +332,7 @@ export class CsvImportService {
 
     requiredAny.forEach((variants) => {
       const ok = variants.some((v) => fields.includes(v));
-      if (!ok) errors.push(`Majburiy kolonka yo‘q: ${variants.join(' / ')}`);
+      if (!ok) errors.push(`Majburiy kolonka yo'q: ${variants.join(' / ')}`);
     });
 
     return { valid: errors.length === 0, errors };

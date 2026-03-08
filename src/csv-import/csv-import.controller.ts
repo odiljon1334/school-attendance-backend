@@ -1,12 +1,15 @@
 import {
   Controller,
   Post,
+  Get,
   UseInterceptors,
   UploadedFile,
   Body,
   UseGuards,
   BadRequestException,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CsvImportService } from './csv-import.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
@@ -77,5 +80,31 @@ export class CsvImportController {
   async validateStudents(@UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException('File is required');
     return this.csvImportService.validateStudentCSV(file);
+  }
+
+  @Get('template/students')
+  @UseGuards(JwtAuthGuard)
+  downloadStudentTemplate(@Res() res: Response) {
+    const csv =
+      'Класс,Фамилия,Имя,Отчество,Телефон,Пол\n' +
+      '9-A,Иванов,Иван,Иванович,+996700123456,мальчик\n' +
+      '9-A,Иванова,Мария,,+996700654321,девочка\n';
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="students_template.csv"');
+    res.send('\uFEFF' + csv); // BOM for Excel UTF-8
+  }
+
+  @Get('template/teachers')
+  @UseGuards(JwtAuthGuard)
+  downloadTeacherTemplate(@Res() res: Response) {
+    const csv =
+      'Фамилия,Имя,Отчество,Телефон,Пол,employeeNo\n' +
+      'Иванов,Иван,Иванович,+996700123456,мальчик,\n' +
+      'Иванова,Мария,,+996700654321,девочка,\n';
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="teachers_template.csv"');
+    res.send('\uFEFF' + csv); // BOM for Excel UTF-8
   }
 }
