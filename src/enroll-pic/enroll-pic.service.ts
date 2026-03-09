@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as fs from 'fs';
 import * as path from 'path';
 import archiver from 'archiver';
+import sharp from 'sharp';
 
 type PersonRow = {
   id: string;
@@ -253,40 +254,41 @@ export class EnrollPicService {
   // PHOTO SAVE
   // =========================
   private async savePhoto(photoData: string, outputPath: string): Promise<void> {
+    let rawBuffer: Buffer;
+
     // data:image;base64,...
     if (photoData.startsWith('data:image')) {
       const base64Data = photoData.replace(/^data:image\/\w+;base64,/, '');
-      const buffer = Buffer.from(base64Data, 'base64');
-      fs.writeFileSync(outputPath, buffer);
-      return;
-    }
+      rawBuffer = Buffer.from(base64Data, 'base64');
 
     // http(s)
-    if (photoData.startsWith('http')) {
+    } else if (photoData.startsWith('http')) {
       const response = await fetch(photoData);
       if (!response.ok) {
         throw new Error(`Failed to fetch photo: ${response.status} ${response.statusText}`);
       }
-      const buffer = Buffer.from(await response.arrayBuffer());
-      fs.writeFileSync(outputPath, buffer);
-      return;
-    }
+      rawBuffer = Buffer.from(await response.arrayBuffer());
 
     // local path
-    if (fs.existsSync(photoData)) {
-      fs.copyFileSync(photoData, outputPath);
-      return;
+    } else if (fs.existsSync(photoData)) {
+      rawBuffer = fs.readFileSync(photoData);
+
+    // fallback: pure base64
+    } else {
+      rawBuffer = Buffer.from(photoData, 'base64');
+      if (rawBuffer.length <= 10) {
+        throw new Error(`Unknown photo format for outputPath=${outputPath}`);
+      }
     }
 
-    // fallback: maybe pure base64
-    try {
-      const buffer = Buffer.from(photoData, 'base64');
-      if (buffer.length > 10) {
-        fs.writeFileSync(outputPath, buffer);
-        return;
-      }
-    } catch {}
-
-    throw new Error(`Unknown photo format for outputPath=${outputPath}`);
+    // Normalize for terminal: auto-rotate (EXIF), resize 600x600, JPEG ~85%
+    await sharp(rawBuffer)
+      .rotate()                              // EXIF rotation fix (telefon rasmlari)
+      .resize(600, 600, {
+        fit: 'cover',                        // kamera rasmi kabi square crop
+        position: 'centre',
+      })
+      .jpeg({ quality: 85 })
+      .toFile(outputPath);
   }
 }
