@@ -663,7 +663,7 @@ if (!schoolId && user?.role !== 'SUPER_ADMIN') {
   throw new Error('schoolId required');
 }
 
-// ✅ Parents (Parent’da schoolId yo‘q, relation orqali filter!)
+// ✅ Parents (Parent’da schoolId yo’q, relation orqali filter!)
     const parentsPromise = target.includes('PARENTS')
     ? this.prisma.parent.findMany({
       where: {
@@ -676,6 +676,8 @@ if (!schoolId && user?.role !== 'SUPER_ADMIN') {
         phone: true,
         isTelegramActive: true,
         telegramChatId: true,
+        isWhatsappActive: true,
+        whatsappPhone: true,
       },
     })
   : Promise.resolve([]);
@@ -705,9 +707,11 @@ if (!schoolId && user?.role !== 'SUPER_ADMIN') {
       phone?: string | null;
       isTelegramActive?: boolean | null;
       telegramChatId?: string | null;
+      isWhatsappActive?: boolean | null;
+      whatsappPhone?: string | null;
     }> = [
       ...parents.map((p) => ({ recipientType: 'PARENT' as const, ...p })),
-      ...teachers.map((t) => ({ recipientType: 'TEACHER' as const, ...t })),
+      ...teachers.map((t) => ({ recipientType: 'TEACHER' as const, ...t, isWhatsappActive: null, whatsappPhone: null })),
     ];
     
 
@@ -727,6 +731,8 @@ if (!schoolId && user?.role !== 'SUPER_ADMIN') {
           phone: r.phone,
           isTelegramActive: r.isTelegramActive,
           telegramChatId: r.telegramChatId,
+          isWhatsappActive: r.isWhatsappActive,
+          whatsappPhone: r.whatsappPhone,
           title,
           message,
           notifType: 'BROADCAST',
