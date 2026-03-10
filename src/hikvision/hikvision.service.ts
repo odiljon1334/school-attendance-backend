@@ -22,17 +22,36 @@ export class HikvisionService {
     private readonly attendanceService: AttendanceService,
   ) {}
 
+  // Qirg'iziston vaqt zonasi: Asia/Bishkek = UTC+6
+  private static readonly TIMEZONE_OFFSET = '+06:00';
+
   /**
-   * Terminal yuborgan vaqtni parse qiladi.
-   * - Agar terminal vaqt yubormasa → server vaqti
-   * - Agar vaqt yaroqsiz bo'lsa → server vaqti
-   * - Agar vaqt 24 soatdan ko'proq o'tgan bo'lsa → server vaqti (buzilgan ma'lumot)
-   * - Agar vaqt kelajakda bo'lsa → server vaqti (terminal soati noto'g'ri)
+   * Terminal yuborgan vaqtni parse qiladi (Qirg'iziston = UTC+6).
+   *
+   * Hikvision terminal odatda timezone ko'rsatmasdan local vaqt yuboradi:
+   *   "2026-03-10T08:20:00" — timezone yo'q, lekin terminal Bishkek vaqtida ishlaydi
+   *
+   * JavaScript "timezone yo'q" stringni server vaqtida (UTC) parse qiladi —
+   * bu Bishkek uchun 6 soat xatolikka olib keladi.
+   * Shuning uchun timezone yo'q bo'lsa +06:00 qo'shamiz.
+   *
+   * - Terminal vaqt yubormasa         → server vaqti
+   * - Vaqt yaroqsiz bo'lsa            → server vaqti
+   * - Vaqt kelajakda (>1 min)         → server vaqti (terminal soati noto'g'ri)
+   * - Vaqt 24 soatdan eski            → server vaqti (buzilgan buffer)
+   * - To'g'ri vaqt                    → terminal vaqti (Bishkek offset bilan)
    */
   private resolveEventTime(eventTime?: string): Date {
     if (!eventTime) return new Date();
 
-    const parsed = new Date(eventTime);
+    // Timezone belgisi bor-yo'qligini tekshiramiz: Z, +HH:MM, -HH:MM
+    const hasTimezone = /[Z]$|[+-]\d{2}:?\d{2}$/.test(eventTime.trim());
+    const timeStr =
+      !hasTimezone && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(eventTime.trim())
+        ? `${eventTime.trim()}${HikvisionService.TIMEZONE_OFFSET}` // +06:00 qo'shamiz
+        : eventTime.trim();
+
+    const parsed = new Date(timeStr);
     if (isNaN(parsed.getTime())) {
       this.logger.warn(`Invalid eventTime from terminal: "${eventTime}", using server time`);
       return new Date();
@@ -53,7 +72,9 @@ export class HikvisionService {
       return serverNow;
     }
 
-    this.logger.log(`✅ Using terminal eventTime: ${parsed.toISOString()} (server: ${serverNow.toISOString()})`);
+    this.logger.log(
+      `✅ Using terminal eventTime: ${parsed.toISOString()} (Bishkek: ${parsed.toLocaleTimeString('ru-RU', { timeZone: 'Asia/Bishkek', hour: '2-digit', minute: '2-digit' })})`,
+    );
     return parsed;
   }
 

@@ -423,7 +423,7 @@ export class AttendanceService {
     const { person, attendance, isLate, lateMinutes, capturePhoto } = params;
     const canSend = await this.canSendNotification(person);
 
-    const TZ = 'Asia/Tashkent';
+    const TZ = 'Asia/Bishkek';
     const time = attendance.checkInTime.toLocaleTimeString('ru-RU', {
       hour: '2-digit', minute: '2-digit', timeZone: TZ,
     });
@@ -502,7 +502,7 @@ export class AttendanceService {
     const { person, attendance, capturePhoto } = params;
     const canSend = await this.canSendNotification(person);
 
-    const TZ = 'Asia/Tashkent';
+    const TZ = 'Asia/Bishkek';
     const checkInTime = attendance.checkInTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
     const checkOutTime = attendance.checkOutTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
     const date = new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: TZ });
