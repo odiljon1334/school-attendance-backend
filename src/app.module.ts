@@ -26,6 +26,7 @@ import { CsvImportModule } from './csv-import/csv-import.module';
 import { BillingModule } from './billing/billing.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { SystemSettingsModule } from './system-settings/system-settings.module';
 
 @Module({
   imports: [
@@ -61,6 +62,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     PayrollModule,
     RedisModule,
     CsvImportModule,
+    SystemSettingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
