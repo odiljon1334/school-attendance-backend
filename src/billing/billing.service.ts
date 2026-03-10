@@ -1,9 +1,9 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { Prisma, BillingPlan, PaymentStatus, PaymentWaiveReason } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { GenerateBillingDto, GenerateMode, GenerateStrategy } from './dto/generate-billing.dto';
-import { computeNextPaidUntil, computePeriodEnd, makePeriodKey, toIntAmount } from './billing.utils';
+import { computeNextPaidUntil, currentMonthKey, makePeriodKey, toIntAmount } from './billing.utils';
 
 type StudentForBilling = {
   id: string;
@@ -46,8 +46,8 @@ export class BillingService {
     if (plan === BillingPlan.MONTHLY && !/^\d{4}-\d{2}$/.test(periodKey)) {
       throw new BadRequestException('MONTHLY periodKey must be "YYYY-MM"');
     }
-    if (plan === BillingPlan.YEARLY && !/^\d{4}(\-\d{4})?$/.test(periodKey)) {
-      throw new BadRequestException('YEARLY periodKey must be "YYYY" or "YYYY-YYYY"');
+    if (plan === BillingPlan.YEARLY && !/^\d{4}-\d{4}$/.test(periodKey)) {
+      throw new BadRequestException('YEARLY periodKey must be "YYYY-YYYY" (e.g. "2025-2026")');
     }
   }
 
@@ -162,6 +162,27 @@ export class BillingService {
     sendNotifications: boolean;
   }) {
     const { schoolId, plan, periodKey, dueDate, amount, mode, decisions, sendNotifications } = params;
+
+    // ── YEARLY conflict: shu oyda MONTHLY record bormi? ──────────────────
+    if (plan === BillingPlan.YEARLY) {
+      const monthKey = currentMonthKey(dueDate);
+      const monthlyConflicts = await this.prisma.payment.findMany({
+        where: {
+          student: { schoolId },
+          plan: BillingPlan.MONTHLY,
+          periodKey: monthKey,
+          status: { not: PaymentStatus.PAID },
+        },
+        select: { studentId: true },
+      });
+
+      if (monthlyConflicts.length > 0) {
+        throw new ConflictException(
+          `${monthlyConflicts.length} ta student uchun ${monthKey} oyida to'lanmagan MONTHLY record mavjud. ` +
+          `Avval ularni o'chirib, keyin YEARLY yarating.`,
+        );
+      }
+    }
 
     // existing payments for idempotency
     const existing = await this.prisma.payment.findMany({
@@ -307,6 +328,26 @@ export class BillingService {
       amount: number;
     }> = [];
 
+    // YEARLY studentlar uchun: joriy oyda MONTHLY record bormi tekshirish
+    const yearlyStudentIds = students
+      .filter(s => (s.billingPlan ?? BillingPlan.MONTHLY) === BillingPlan.YEARLY)
+      .map(s => s.id);
+
+    const monthlyConflictIds = new Set<string>();
+    if (yearlyStudentIds.length > 0) {
+      const monthKey = currentMonthKey(now);
+      const conflicts = await this.prisma.payment.findMany({
+        where: {
+          studentId: { in: yearlyStudentIds },
+          plan: BillingPlan.MONTHLY,
+          periodKey: monthKey,
+          status: { not: PaymentStatus.PAID },
+        },
+        select: { studentId: true },
+      });
+      conflicts.forEach(c => monthlyConflictIds.add(c.studentId));
+    }
+
     for (const s of students) {
       const paidUntil = s.billingPaidUntil;
 
@@ -319,10 +360,18 @@ export class BillingService {
       const studentPlan = s.billingPlan ?? BillingPlan.MONTHLY;
       const studentAmount = this.getPlanAmount(studentPlan);
 
+      // YEARLY: shu oyda MONTHLY record bor → skip + warn
+      if (studentPlan === BillingPlan.YEARLY && monthlyConflictIds.has(s.id)) {
+        this.logger.warn(
+          `[ROLLING] student=${s.id} YEARLY skip: unpaid MONTHLY exists for ${currentMonthKey(now)}`,
+        );
+        skipped++;
+        continue;
+      }
+
       const start = paidUntil && paidUntil > now ? paidUntil : now;
-      // Period oxiri: YEARLY → keyingi May 25 (9 oylik maktab yili), MONTHLY → +1 oy
-      const end = computePeriodEnd(studentPlan, start);
-      const periodKey = makePeriodKey(start, end);
+      // Normalized periodKey: MONTHLY → "YYYY-MM", YEARLY → "YYYY-YYYY"
+      const periodKey = makePeriodKey(studentPlan, start);
 
       const d = decisions.get(s.id) ?? { status: PaymentStatus.PENDING };
       const status = d.status;
