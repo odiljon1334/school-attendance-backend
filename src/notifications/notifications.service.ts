@@ -22,23 +22,37 @@ export class NotificationsService {
   // =========================
   // BASIC CRUD
   // =========================
-  async findAll(recipientId?: string, type?: string, isSent?: string) {
-    const where: any = { isRead: false, };
+  async findAll(
+    recipientId?: string,
+    type?: string,
+    isSent?: string,
+    limit = 10,
+    skip = 0,
+    includeRead = false,
+  ) {
+    const where: any = {};
+    if (!includeRead) where.isRead = false;
     if (recipientId) where.recipientId = recipientId;
     if (type) where.type = type;
     if (isSent !== undefined) where.isSent = isSent === 'true';
 
-    return this.prisma.notification.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-    });
+    const [items, total] = await Promise.all([
+      this.prisma.notification.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip,
+      }),
+      this.prisma.notification.count({ where }),
+    ]);
+
+    return { items, total };
   }
 
   async remove(id: string) {
     await this.prisma.notification.delete({ where: { id } });
     return { message: 'Уведомление удалено' };
   }
-  
 
   async markAsRead(id: string) {
     await this.prisma.notification.update({
@@ -46,6 +60,23 @@ export class NotificationsService {
       data: { isRead: true, readAt: new Date() },
     });
     return { message: 'Уведомление прочитано' };
+  }
+
+  // Barcha o'qilmagan notificationlarni o'qilgan deb belgilash
+  async markAllAsRead() {
+    const result = await this.prisma.notification.updateMany({
+      where: { isRead: false },
+      data: { isRead: true, readAt: new Date() },
+    });
+    return { updated: result.count };
+  }
+
+  // Barcha o'qilgan notificationlarni o'chirish
+  async deleteAllRead() {
+    const result = await this.prisma.notification.deleteMany({
+      where: { isRead: true },
+    });
+    return { deleted: result.count };
   }
 
   // =========================

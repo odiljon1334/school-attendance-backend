@@ -33,7 +33,7 @@ export class SendPaymentReminderDto {
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
-  // Get all notifications
+  // Get all notifications (with pagination + read filter)
   @Get()
   @Roles(
     UserRole.SUPER_ADMIN,
@@ -44,8 +44,18 @@ export class NotificationsController {
     @Query('recipientId') recipientId?: string,
     @Query('type') type?: string,
     @Query('isSent') isSent?: string,
+    @Query('limit') limit?: string,
+    @Query('skip') skip?: string,
+    @Query('includeRead') includeRead?: string,
   ) {
-    return this.notificationsService.findAll(recipientId, type, isSent);
+    return this.notificationsService.findAll(
+      recipientId,
+      type,
+      isSent,
+      limit ? parseInt(limit, 10) : 10,
+      skip ? parseInt(skip, 10) : 0,
+      includeRead === 'true',
+    );
   }
 
   // Send daily attendance to parents
@@ -81,19 +91,36 @@ export class NotificationsController {
     return this.notificationsService.sendPaymentConfirmation(paymentId);
   }
 
-  // Delete notification
-  @Delete(':id')
+  // Barcha o'qilmagan → o'qilgan deb belgilash (specific :id/read DAN OLDIN bo'lishi kerak)
+  @Patch('mark-all-read')
   @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
   @HttpCode(HttpStatus.OK)
-  remove(@Param('id') id: string) {
-    return this.notificationsService.remove(id);
+  markAllAsRead() {
+    return this.notificationsService.markAllAsRead();
   }
 
+  // Bitta notification o'qilgan deb belgilash
   @Patch(':id/read')
   @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
   @HttpCode(HttpStatus.OK)
   markAsRead(@Param('id') id: string) {
     return this.notificationsService.markAsRead(id);
+  }
+
+  // Barcha o'qilganlarni o'chirish (specific :id DAN OLDIN bo'lishi kerak)
+  @Delete('read')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  deleteAllRead() {
+    return this.notificationsService.deleteAllRead();
+  }
+
+  // Bitta notification o'chirish
+  @Delete(':id')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  remove(@Param('id') id: string) {
+    return this.notificationsService.remove(id);
   }
   
   @Post('broadcast')
