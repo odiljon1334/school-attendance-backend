@@ -6,6 +6,7 @@ import { AttendanceService } from '../attendance/attendance.service';
 export type HikvisionWebhookEvent = {
   employeeNo: string;
   deviceId: string | null;
+  eventTime?: string; // terminal tomonidan yuborilgan original vaqt (ISO string)
   raw?: any;
   snapshotBytes?: Buffer;
   contentType?: string;
@@ -21,6 +22,41 @@ export class HikvisionService {
     private readonly attendanceService: AttendanceService,
   ) {}
 
+  /**
+   * Terminal yuborgan vaqtni parse qiladi.
+   * - Agar terminal vaqt yubormasa → server vaqti
+   * - Agar vaqt yaroqsiz bo'lsa → server vaqti
+   * - Agar vaqt 24 soatdan ko'proq o'tgan bo'lsa → server vaqti (buzilgan ma'lumot)
+   * - Agar vaqt kelajakda bo'lsa → server vaqti (terminal soati noto'g'ri)
+   */
+  private resolveEventTime(eventTime?: string): Date {
+    if (!eventTime) return new Date();
+
+    const parsed = new Date(eventTime);
+    if (isNaN(parsed.getTime())) {
+      this.logger.warn(`Invalid eventTime from terminal: "${eventTime}", using server time`);
+      return new Date();
+    }
+
+    const serverNow = new Date();
+    const diffMs = serverNow.getTime() - parsed.getTime();
+
+    // Kelajakda (1 daqiqadan ko'proq) → noto'g'ri terminal soati
+    if (diffMs < -60_000) {
+      this.logger.warn(`Terminal eventTime is in the future: ${eventTime}, using server time`);
+      return serverNow;
+    }
+
+    // 24 soatdan eski → ehtimol buzilgan buffer
+    if (diffMs > 24 * 60 * 60 * 1000) {
+      this.logger.warn(`Terminal eventTime is too old (>24h): ${eventTime}, using server time`);
+      return serverNow;
+    }
+
+    this.logger.log(`✅ Using terminal eventTime: ${parsed.toISOString()} (server: ${serverNow.toISOString()})`);
+    return parsed;
+  }
+
   async handleFaceRecognitionEvent(event: HikvisionWebhookEvent) {
     const employeeNo = String(event.employeeNo || '').trim();
     const deviceIdRaw = event.deviceId ? String(event.deviceId).trim() : '';
@@ -35,7 +71,9 @@ export class HikvisionService {
       return { success: false, message: 'Invalid employeeNo' };
     }
 
-    const now = new Date();
+    // Terminal vaqtini ishlatamiz (WiFi offline bo'lib, keyin ulanishda original vaqt saqlanadi)
+    // Agar terminal vaqt yuborsa — shuni ishlatamiz; aks holda server vaqti
+    const now = this.resolveEventTime(event.eventTime);
     const capturePhoto = event.snapshotBytes ? event.snapshotBytes.toString('base64') : undefined;
 
     const [student, teacher] = await Promise.all([

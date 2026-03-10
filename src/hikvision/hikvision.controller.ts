@@ -118,6 +118,7 @@ export class HikvisionController {
     const res = await this.hikvisionService.handleFaceRecognitionEvent({
       employeeNo: parsed.employeeNo,
       deviceId: parsed.deviceId ?? null, // kelmasa ham OK
+      eventTime: parsed.eventTime,       // terminal vaqti (WiFi bufferlanganda to'g'ri vaqt)
       raw: parsed.eventRaw,
       snapshotBytes: parsed.snapshotBytes,
       contentType: ct,
@@ -136,6 +137,32 @@ export class HikvisionController {
   // PARSER
   // ────────────────────────────────────────────────────────
 
+  private extractEventTimeFromObject(obj: any): string | undefined {
+    const v =
+      obj?.dateTime ||
+      obj?.DateTime ||
+      obj?.eventTime ||
+      obj?.EventTime ||
+      obj?.triggerTime ||
+      obj?.TriggerTime ||
+      obj?.AccessControllerEvent?.dateTime ||
+      obj?.AccessControllerEvent?.DateTime ||
+      obj?.AccessControllerEvent?.time ||
+      obj?.Events?.[0]?.dateTime ||
+      obj?.Events?.[0]?.time;
+    return v ? String(v).trim() : undefined;
+  }
+
+  private extractEventTimeFromXml(xml: string): string | undefined {
+    let m = xml.match(/<dateTime>\s*([^<]+)\s*<\/dateTime>/i);
+    if (m?.[1]) return m[1].trim();
+    m = xml.match(/<DateTime>\s*([^<]+)\s*<\/DateTime>/i);
+    if (m?.[1]) return m[1].trim();
+    m = xml.match(/<triggerTime>\s*([^<]+)\s*<\/triggerTime>/i);
+    if (m?.[1]) return m[1].trim();
+    return undefined;
+  }
+
   private parseHikvisionPayload(
     contentType: string,
     body?: Buffer,
@@ -143,6 +170,7 @@ export class HikvisionController {
     kind: 'json' | 'xml' | 'multipart' | 'unknown';
     employeeNo?: string;
     deviceId?: string;
+    eventTime?: string;
     eventRaw?: any;
     snapshotBytes?: Buffer;
   } {
@@ -154,10 +182,11 @@ export class HikvisionController {
         const obj = JSON.parse(body.toString('utf8'));
         const employeeNo = this.extractEmployeeNoFromObject(obj);
         const deviceId = this.extractDeviceIdFromObject(obj);
+        const eventTime = this.extractEventTimeFromObject(obj);
         // JSON ichida base64 foto bo'lishi mumkin
         const snapshotBytes = this.extractPhotoFromJsonObject(obj);
         if (snapshotBytes) console.log('📸 Photo found in JSON body:', snapshotBytes.length, 'bytes');
-        return { kind: 'json', employeeNo, deviceId, eventRaw: obj, snapshotBytes };
+        return { kind: 'json', employeeNo, deviceId, eventTime, eventRaw: obj, snapshotBytes };
       } catch {
         return { kind: 'unknown', eventRaw: body.toString('utf8') };
       }
@@ -168,7 +197,8 @@ export class HikvisionController {
       const xml = body.toString('utf8');
       const employeeNo = this.extractEmployeeNoFromXml(xml);
       const deviceId = this.extractDeviceIdFromXml(xml);
-      return { kind: 'xml', employeeNo, deviceId, eventRaw: xml };
+      const eventTime = this.extractEventTimeFromXml(xml);
+      return { kind: 'xml', employeeNo, deviceId, eventTime, eventRaw: xml };
     }
 
     // ── MULTIPART ─────────────────────────────────────────
@@ -247,7 +277,7 @@ export class HikvisionController {
         if (maybe) xmlText = maybe.body.toString('utf8');
       }
 
-      // ✅ FIX: employeeNo/deviceId — avval JSON dan, keyin XML dan qidiramiz
+      // ✅ FIX: employeeNo/deviceId/eventTime — avval JSON dan, keyin XML dan qidiramiz
       const employeeNo = jsonObj
         ? this.extractEmployeeNoFromObject(jsonObj)
         : xmlText
@@ -260,10 +290,17 @@ export class HikvisionController {
           ? this.extractDeviceIdFromXml(xmlText)
           : undefined;
 
+      const eventTime = jsonObj
+        ? this.extractEventTimeFromObject(jsonObj)
+        : xmlText
+          ? this.extractEventTimeFromXml(xmlText)
+          : undefined;
+
       return {
         kind: 'multipart',
         employeeNo,
         deviceId,
+        eventTime,
         eventRaw: jsonObj ?? xmlText ?? '(multipart-no-data)',
         snapshotBytes: snap,
       };
