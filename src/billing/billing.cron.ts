@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { BillingService } from './billing.service';
-import { BillingPlan } from '@prisma/client';
 import { GenerateMode, GenerateStrategy } from './dto/generate-billing.dto';
 
 @Injectable()
@@ -18,23 +17,14 @@ export class BillingCron {
   async runDaily() {
     const schools = await this.prisma.school.findMany({ select: { id: true } });
     for (const s of schools) {
-      // MONTHLY rolling
+      // ROLLING_DUE: har student o'z billingPlan'idan foydalanadi.
+      // YEARLY uchun kamida 14 kun, MONTHLY uchun 3 kun oldin — service ichida hisoblanadi.
+      // plan ko'rsatilmaydi — barcha planlar bir chaqiruvda.
       await this.billing.generate({
         schoolId: s.id,
-        plan: BillingPlan.MONTHLY,
         strategy: GenerateStrategy.ROLLING_DUE,
         mode: GenerateMode.SKIP_EXISTING,
-        daysBefore: 3,
-        sendNotifications: true,
-      });
-
-      // YEARLY rolling (xohlasangiz daysBefore 14 qiling)
-      await this.billing.generate({
-        schoolId: s.id,
-        plan: BillingPlan.YEARLY,
-        strategy: GenerateStrategy.ROLLING_DUE,
-        mode: GenerateMode.SKIP_EXISTING,
-        daysBefore: 14,
+        daysBefore: 3,          // MONTHLY uchun; YEARLY uchun service avtomatik max(3,14)=14 ishlatadi
         sendNotifications: true,
       });
     }

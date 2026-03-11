@@ -16,7 +16,8 @@ export class GenerateBillingDto {
   schoolId: string;
 
   @IsEnum(BillingPlan)
-  plan: BillingPlan;
+  @IsOptional()
+  plan?: BillingPlan;
 
   @IsEnum(GenerateMode)
   @IsOptional()

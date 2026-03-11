@@ -123,6 +123,7 @@ export class BillingService {
 
     // 3) Dispatch strategy
     if (strategy === GenerateStrategy.FIXED_PERIOD) {
+      if (!dto.plan) throw new BadRequestException('plan is required for FIXED_PERIOD strategy');
       const amount = this.getPlanAmount(dto.plan);
       this.validateFixedPeriodKey(dto.plan, dto.periodKey);
       return this.generateFixedPeriod({
@@ -163,12 +164,45 @@ export class BillingService {
   }) {
     const { schoolId, plan, periodKey, dueDate, amount, mode, decisions, sendNotifications } = params;
 
-    // ── YEARLY conflict: shu oyda MONTHLY record bormi? ──────────────────
+    // Faqat o'z billingPlan'iga mos studentlar (MONTHLY plan → MONTHLY studentlar)
+    const students = await this.prisma.student.findMany({
+      where: { schoolId, billingPlan: plan },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    if (!students.length) {
+      return { created: 0, updated: 0, skipped: 0, notified: 0, plan, periodKey, dueDate, amount, message: `No ${plan} students in this school` };
+    }
+
+    const studentIds = students.map(s => s.id);
+
+    // ── MONTHLY conflict: shu o'quv yilida YEARLY record (PENDING/PAID) bormi? ──
+    if (plan === BillingPlan.MONTHLY) {
+      const academicYearKey = makePeriodKey(BillingPlan.YEARLY, dueDate);
+      const yearlyConflicts = await this.prisma.payment.findMany({
+        where: {
+          studentId: { in: studentIds },
+          plan: BillingPlan.YEARLY,
+          periodKey: academicYearKey,
+          status: { not: PaymentStatus.WAIVED },
+        },
+        select: { studentId: true },
+      });
+      if (yearlyConflicts.length > 0) {
+        throw new ConflictException(
+          `${yearlyConflicts.length} ta student uchun ${academicYearKey} o'quv yilida faol YEARLY record mavjud. ` +
+          `Bu studentlar uchun MONTHLY billing yaratib bo'lmaydi.`,
+        );
+      }
+    }
+
+    // ── YEARLY conflict: shu oyda MONTHLY record (PENDING) bormi? ──────────────
     if (plan === BillingPlan.YEARLY) {
       const monthKey = currentMonthKey(dueDate);
       const monthlyConflicts = await this.prisma.payment.findMany({
         where: {
-          student: { schoolId },
+          studentId: { in: studentIds },
           plan: BillingPlan.MONTHLY,
           periodKey: monthKey,
           status: { not: PaymentStatus.PAID },
@@ -186,7 +220,7 @@ export class BillingService {
 
     // existing payments for idempotency
     const existing = await this.prisma.payment.findMany({
-      where: { student: { schoolId }, plan, periodKey },
+      where: { studentId: { in: studentIds }, plan, periodKey },
       select: { id: true, studentId: true, status: true },
     });
     const existingByStudent = new Map(existing.map((p) => [p.studentId, p]));
@@ -194,12 +228,6 @@ export class BillingService {
     const toCreate: Prisma.PaymentCreateManyInput[] = [];
     const toUpdate: Array<{ id: string; data: Prisma.PaymentUpdateInput }> = [];
     let skipped = 0;
-
-    const students = await this.prisma.student.findMany({
-      where: { schoolId },
-      select: { id: true },
-      orderBy: { createdAt: 'asc' },
-    });
 
     for (const s of students) {
       const d = decisions.get(s.id) ?? { status: PaymentStatus.PENDING };
@@ -303,9 +331,11 @@ export class BillingService {
   }) {
     const { schoolId, mode, decisions, sendNotifications, daysBefore, students } = params;
 
+    // YEARLY studentlar uchun kamida 14 kun oldin, MONTHLY uchun daysBefore
+    const YEARLY_DAYS_BEFORE = Math.max(daysBefore, 14);
+    const MONTHLY_DAYS_BEFORE = daysBefore;
+
     const now = new Date();
-    const threshold = new Date(now);
-    threshold.setDate(threshold.getDate() + daysBefore);
 
     // 1) Barcha studentlar — har biri o'z billingPlan'idan foydalanadi
     let created = 0;
@@ -328,11 +358,14 @@ export class BillingService {
       amount: number;
     }> = [];
 
-    // YEARLY studentlar uchun: joriy oyda MONTHLY record bormi tekshirish
     const yearlyStudentIds = students
       .filter(s => (s.billingPlan ?? BillingPlan.MONTHLY) === BillingPlan.YEARLY)
       .map(s => s.id);
+    const monthlyStudentIds = students
+      .filter(s => (s.billingPlan ?? BillingPlan.MONTHLY) === BillingPlan.MONTHLY)
+      .map(s => s.id);
 
+    // YEARLY student → joriy oyda MONTHLY record bormi?
     const monthlyConflictIds = new Set<string>();
     if (yearlyStudentIds.length > 0) {
       const monthKey = currentMonthKey(now);
@@ -348,8 +381,30 @@ export class BillingService {
       conflicts.forEach(c => monthlyConflictIds.add(c.studentId));
     }
 
+    // MONTHLY student → joriy o'quv yilida faol YEARLY record bormi?
+    const yearlyConflictIds = new Set<string>();
+    if (monthlyStudentIds.length > 0) {
+      const academicYearKey = makePeriodKey(BillingPlan.YEARLY, now);
+      const conflicts = await this.prisma.payment.findMany({
+        where: {
+          studentId: { in: monthlyStudentIds },
+          plan: BillingPlan.YEARLY,
+          periodKey: academicYearKey,
+          status: { not: PaymentStatus.WAIVED },
+        },
+        select: { studentId: true },
+      });
+      conflicts.forEach(c => yearlyConflictIds.add(c.studentId));
+    }
+
     for (const s of students) {
       const paidUntil = s.billingPaidUntil;
+      const studentPlan = s.billingPlan ?? BillingPlan.MONTHLY;
+
+      // Plan-specific threshold
+      const planDaysBefore = studentPlan === BillingPlan.YEARLY ? YEARLY_DAYS_BEFORE : MONTHLY_DAYS_BEFORE;
+      const threshold = new Date(now);
+      threshold.setDate(threshold.getDate() + planDaysBefore);
 
       // Hali vaqt bor => invoice kerak emas
       if (paidUntil && paidUntil > threshold) {
@@ -357,13 +412,21 @@ export class BillingService {
         continue;
       }
 
-      const studentPlan = s.billingPlan ?? BillingPlan.MONTHLY;
       const studentAmount = this.getPlanAmount(studentPlan);
 
-      // YEARLY: shu oyda MONTHLY record bor → skip + warn
+      // YEARLY: joriy oyda to'lanmagan MONTHLY record bor → skip
       if (studentPlan === BillingPlan.YEARLY && monthlyConflictIds.has(s.id)) {
         this.logger.warn(
           `[ROLLING] student=${s.id} YEARLY skip: unpaid MONTHLY exists for ${currentMonthKey(now)}`,
+        );
+        skipped++;
+        continue;
+      }
+
+      // MONTHLY: joriy o'quv yilida faol YEARLY record bor → skip
+      if (studentPlan === BillingPlan.MONTHLY && yearlyConflictIds.has(s.id)) {
+        this.logger.warn(
+          `[ROLLING] student=${s.id} MONTHLY skip: active YEARLY exists for ${makePeriodKey(BillingPlan.YEARLY, now)}`,
         );
         skipped++;
         continue;
