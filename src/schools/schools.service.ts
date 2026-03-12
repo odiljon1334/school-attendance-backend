@@ -213,6 +213,73 @@ export class SchoolsService {
   }
 
   // Get school statistics
+  async getBulkStatistics(districtId: string) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+
+    // 1 DB query: all schools with counts
+    const schools = await this.prisma.school.findMany({
+      where: { districtId },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        address: true,
+        phone: true,
+        _count: {
+          select: { students: true, teachers: true, classes: true },
+        },
+      },
+    });
+
+    if (!schools.length) return [];
+
+    const schoolIds = schools.map((s) => s.id);
+
+    // 1 DB query: today's attendance for ALL schools at once
+    const attendanceRecords = await this.prisma.attendance.findMany({
+      where: {
+        schoolId: { in: schoolIds },
+        date: { gte: today, lt: tomorrow },
+        studentId: { not: null },
+      },
+      select: { schoolId: true, status: true },
+    });
+
+    // Group by schoolId
+    const presentBySchool = new Map<string, number>();
+    for (const a of attendanceRecords) {
+      if (a.status === 'PRESENT' || a.status === 'LATE') {
+        presentBySchool.set(a.schoolId, (presentBySchool.get(a.schoolId) ?? 0) + 1);
+      }
+    }
+
+    return schools.map((school) => {
+      const present = presentBySchool.get(school.id) ?? 0;
+      const total = school._count.students;
+      return {
+        id: school.id,
+        name: school.name,
+        code: school.code,
+        address: school.address,
+        phone: school.phone,
+        counts: {
+          totalStudents: total,
+          totalTeachers: school._count.teachers,
+          totalClasses: school._count.classes,
+        },
+        todayAttendance: {
+          students: {
+            present,
+            total,
+            rate: total > 0 ? ((present / total) * 100).toFixed(1) : '0',
+          },
+        },
+      };
+    });
+  }
+
   async getStatistics(id: string) {
     const school = await this.prisma.school.findUnique({
       where: { id },

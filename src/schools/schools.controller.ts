@@ -40,6 +40,17 @@ export class SchoolsController {
     return this.schoolsService.findAll(districtId);
   }
 
+  @Get('bulk-statistics')
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.DISTRICT_ADMIN,
+    UserRole.SCHOOL_ADMIN,
+    UserRole.DIRECTOR,
+  )
+  getBulkStatistics(@Query('districtId') districtId: string) {
+    return this.schoolsService.getBulkStatistics(districtId);
+  }
+
   @Get(':id')
   @Roles(
     UserRole.SUPER_ADMIN,
