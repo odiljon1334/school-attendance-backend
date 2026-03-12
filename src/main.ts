@@ -3,6 +3,8 @@ import { AppModule } from './app.module';
 import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { webcrypto } from 'node:crypto';
 import * as express from 'express';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const compression = require('compression');
 import { JwtAuthGuard } from './auth/guards/jwt.auth.guards';
 
 async function bootstrap() {
@@ -13,6 +15,9 @@ async function bootstrap() {
   const corsOrigins = process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
     : ['http://localhost:3000', 'http://192.168.1.3:3000'];
+
+  // Gzip compression — response hajmini 2-5x kamaytiradi
+  app.use(compression());
 
   app.enableCors({
     origin: corsOrigins,
