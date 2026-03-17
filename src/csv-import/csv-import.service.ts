@@ -42,8 +42,13 @@ export class CsvImportService {
   }
 
   private pick(row: any, keys: string[]) {
+    // Build lowercase-keyed copy for case-insensitive lookup (e.g. "класс" == "Класс")
+    const lowerRow: Record<string, any> = {};
+    for (const k of Object.keys(row || {})) {
+      lowerRow[k.toLowerCase()] = row[k];
+    }
     for (const k of keys) {
-      const v = row?.[k];
+      const v = lowerRow[k.toLowerCase()];
       if (v !== undefined && v !== null && String(v).trim() !== '') {
         return String(v).trim();
       }
@@ -106,7 +111,7 @@ export class CsvImportService {
           this.pick(row, ['employeeNo', 'EmployeeNo', 'EnrollNumber', 'ID']).toString().trim() || null;
 
         if (!firstName || !lastName) {
-          throw new Error('Ism va Familiya majburiy');
+          throw new Error('Обязательные поля отсутствуют: Имя, Фамилия');
         }
 
         // enrollNumber duplicate check (agar bo'lsa)
@@ -193,14 +198,14 @@ export class CsvImportService {
         const firstName = this.pick(row, ['Имя', 'Ism', 'FirstName']).trim();
         const middleName = this.pick(row, ['Отчество', 'Sharif', 'MiddleName']).trim() || null;
 
-        // Parent phone: "Телефон" yoki "Telefon"
-        const parentPhoneRaw = this.normalizePhoneRaw(this.pick(row, ['Телефон', 'Telefon', 'Phone']));
+        // Parent phone: "Телефон" yoki "Telefon" yoki "тел.номер"
+        const parentPhoneRaw = this.normalizePhoneRaw(this.pick(row, ['Телефон', 'Telefon', 'Phone', 'тел.номер']));
         const parentPhone = this.formatPhone(parentPhoneRaw);
         const gender = this.parseGender(this.pick(row, ['Jinsi', 'Пол', 'Gender']));
 
         // ✅ Minimal required
         if (!classSection || !firstName || !lastName) {
-          throw new Error("Klass/Sinf, Ism, Familiya majburiy");
+          throw new Error('Обязательные поля отсутствуют: Класс, Имя, Фамилия');
         }
 
         // "9-A" format
@@ -209,7 +214,7 @@ export class CsvImportService {
         const section = (sectionRaw || '').trim();
 
         if (!Number.isFinite(grade) || grade <= 0 || !section) {
-          throw new Error(`Klass formati xato: ${classSection} (masalan: 9-A)`);
+          throw new Error(`Неверный формат класса: "${classSection}" (пример: 9-А)`);
         }
 
         // class find/create
@@ -306,19 +311,22 @@ export class CsvImportService {
     const csvContent = file.buffer.toString('utf-8');
     const parsed = Papa.parse(csvContent, { header: true });
 
-    const fields = parsed.meta.fields || [];
+    // Normalize to lowercase for case-insensitive check
+    const lowerFields = (parsed.meta.fields || []).map((f) => f.toLowerCase());
     const errors: string[] = [];
 
-    // RU yoki UZ bo'lishi mumkin
+    // RU + UZ header support — case-insensitive
     const requiredAny = [
-      ['Familiya', 'Фамилия'],
-      ['Ism', 'Имя'],
-      ['Telefon', 'Телефон'],
+      ['Фамилия', 'Familiya'],
+      ['Имя', 'Ism'],
+      ['Телефон', 'Telefon', 'тел.номер'],
     ];
 
     requiredAny.forEach((variants) => {
-      const ok = variants.some((v) => fields.includes(v));
-      if (!ok) errors.push(`Majburiy kolonka yo'q: ${variants.join(' / ')}`);
+      const ok = variants.some((v) => lowerFields.includes(v.toLowerCase()));
+      if (!ok) {
+        errors.push(`Обязательная колонка отсутствует: ${variants.join(' / ')}`);
+      }
     });
 
     return { valid: errors.length === 0, errors };
@@ -328,7 +336,8 @@ export class CsvImportService {
     const csvContent = file.buffer.toString('utf-8');
     const parsed = Papa.parse(csvContent, { header: true });
 
-    const fields = parsed.meta.fields || [];
+    // Normalize to lowercase for case-insensitive check
+    const lowerFields = (parsed.meta.fields || []).map((f) => f.toLowerCase());
     const errors: string[] = [];
 
     const requiredAny = [
@@ -338,8 +347,10 @@ export class CsvImportService {
     ];
 
     requiredAny.forEach((variants) => {
-      const ok = variants.some((v) => fields.includes(v));
-      if (!ok) errors.push(`Majburiy kolonka yo'q: ${variants.join(' / ')}`);
+      const ok = variants.some((v) => lowerFields.includes(v.toLowerCase()));
+      if (!ok) {
+        errors.push(`Обязательная колонка отсутствует: ${variants.join(' / ')}`);
+      }
     });
 
     return { valid: errors.length === 0, errors };
