@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
   Get,
+  Ip,
 } from '@nestjs/common';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
@@ -31,8 +32,8 @@ export class AuthController {
   @Post('login')
   @Throttle({ short: { ttl: 60000, limit: 5 } })
   @HttpCode(HttpStatus.OK)
-  async login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto);
+  async login(@Body() loginDto: LoginDto, @Ip() ip: string) {
+    return this.authService.login(loginDto, ip);
   }
 
   @Get('me')

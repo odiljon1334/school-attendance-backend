@@ -5,6 +5,7 @@ import { RedisService } from '../redis/redis.service';
 import { CreateStudentDto } from './dto/student.dto';
 import { UpdateStudentDto } from './dto/student.dto';
 import * as bcrypt from 'bcrypt';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 function pad(num: number, size: number) {
   return String(num).padStart(size, '0');
@@ -20,6 +21,7 @@ export class StudentsService {
     private prisma: PrismaService,
     private turnstileService: TurnstileService,
     private redis: RedisService,
+    private auditLog: AuditLogService,
   ) {}
 
   private async nextStudentEnrollNumber(tx: PrismaService, schoolId: string) {
@@ -165,6 +167,14 @@ export class StudentsService {
 
       await this.redis.deleteCachePattern(`classes:all:${createStudentDto.schoolId}:*`);
 
+      void this.auditLog.log({
+        action: 'STUDENT_CREATE',
+        entity: 'Student',
+        entityId: student.id,
+        schoolId: createStudentDto.schoolId,
+        details: { name: `${createStudentDto.firstName} ${createStudentDto.lastName}` },
+      });
+
       return result;
     });
   }
@@ -306,7 +316,7 @@ export class StudentsService {
       }
 
   
-      return tx.student.findUnique({
+      const updated = await tx.student.findUnique({
         where: { id: student.id },
         include: {
           user: true,
@@ -315,6 +325,16 @@ export class StudentsService {
           parents: { include: { parent: true } },
         },
       });
+
+      void this.auditLog.log({
+        action: 'STUDENT_UPDATE',
+        entity: 'Student',
+        entityId: id,
+        schoolId: existing.schoolId,
+        details: { name: `${existing.firstName} ${existing.lastName}` },
+      });
+
+      return updated;
     });
   }
 
@@ -350,6 +370,14 @@ export class StudentsService {
 
     // Invalidate class cache so counts update immediately
     await this.redis.deleteCachePattern(`classes:all:${student.schoolId}:*`);
+
+    void this.auditLog.log({
+      action: 'STUDENT_DELETE',
+      entity: 'Student',
+      entityId: id,
+      schoolId: student.schoolId,
+      details: { name: `${student.firstName} ${student.lastName}` },
+    });
 
     return { message: 'Student deleted successfully' };
   }

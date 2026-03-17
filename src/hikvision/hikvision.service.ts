@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PayrollService } from '../payroll/payroll.service';
 import { AttendanceService } from '../attendance/attendance.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 export type HikvisionWebhookEvent = {
   employeeNo: string;
@@ -20,6 +21,7 @@ export class HikvisionService {
     private readonly prisma: PrismaService,
     private readonly payrollService: PayrollService,
     private readonly attendanceService: AttendanceService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   // Qirg'iziston vaqt zonasi: Asia/Bishkek = UTC+6
@@ -114,6 +116,15 @@ export class HikvisionService {
       if (!capturePhoto && student.photo) {
         this.logger.log(`📸 Using enrollment photo for student (no terminal snapshot)`);
       }
+
+      void this.auditLog.log({
+        action: 'TERMINAL_SCAN',
+        entity: 'Student',
+        entityId: student.id,
+        schoolId: student.schoolId,
+        details: { employeeNo, deviceId, hasPhoto: !!capturePhoto, time: now.toISOString() },
+      });
+
       return this.attendanceService.handleTurnstileEvent({
         personId: `STU_${student.id}`,
         deviceId,
@@ -124,6 +135,14 @@ export class HikvisionService {
     }
 
     if (teacher) {
+      void this.auditLog.log({
+        action: 'TERMINAL_SCAN',
+        entity: 'Teacher',
+        entityId: teacher.id,
+        schoolId: teacher.schoolId ?? undefined,
+        details: { employeeNo, deviceId, hasPhoto: !!capturePhoto, type: teacher.type, time: now.toISOString() },
+      });
+
       try {
         await this.payrollService.processAttendance(teacher.id, 'IN', now);
       } catch (e: any) {
@@ -131,12 +150,14 @@ export class HikvisionService {
       }
 
       const prefix = teacher.type === 'DIRECTOR' ? 'DIR' : 'TCH';
+      const photoToSend = capturePhoto ?? undefined;
 
       await this.attendanceService.handleTurnstileEvent({
         personId: `${prefix}_${teacher.id}`,
         deviceId,
         timestamp: now.toISOString(),
         eventType: 'FACE_RECOGNITION',
+        capturePhoto: photoToSend,
       });
 
       return {

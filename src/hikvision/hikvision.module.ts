@@ -5,12 +5,14 @@ import { HikvisionApiService } from './hikvision-api.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PayrollModule } from '../payroll/payroll.module';
 import { AttendanceModule } from 'src/attendance/attendance.module';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 
 @Module({
   imports: [
     PrismaModule,
     PayrollModule,
-    forwardRef(() => AttendanceModule)
+    forwardRef(() => AttendanceModule),
+    AuditLogModule,
   ],
   controllers: [HikvisionController],
   providers: [HikvisionService, HikvisionApiService],

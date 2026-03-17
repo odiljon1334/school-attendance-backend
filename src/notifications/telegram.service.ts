@@ -438,6 +438,31 @@ export class TelegramService {
         },
       });
 
+      // ── TelegramSubscription upsert ──
+      const firstSchoolId = parent.students?.[0]?.student?.school?.id ?? null;
+      try {
+        await this.prisma.telegramSubscription.upsert({
+          where: { chatId },
+          update: {
+            username: ctx.from?.username ?? null,
+            isActive: true,
+            parentId: parent.id,
+            schoolId: firstSchoolId,
+          },
+          create: {
+            chatId,
+            username: ctx.from?.username ?? null,
+            phone,
+            role: 'PARENT',
+            isActive: true,
+            parentId: parent.id,
+            schoolId: firstSchoolId,
+          },
+        });
+      } catch (e: any) {
+        this.logger.warn(`TelegramSubscription upsert failed: ${e?.message}`);
+      }
+
       // ── OTP ni o'chiramiz ──
       await this.redis.del(`otp:tg:${chatId}`);
 
@@ -722,6 +747,14 @@ export class TelegramService {
         },
       });
 
+      try {
+        await this.prisma.telegramSubscription.upsert({
+          where: { chatId },
+          update: { username: ctx.from?.username ?? null, isActive: true, teacherId: teacher.id, schoolId: teacher.schoolId },
+          create: { chatId, username: ctx.from?.username ?? null, phone, role: 'TEACHER', isActive: true, teacherId: teacher.id, schoolId: teacher.schoolId },
+        });
+      } catch (e: any) { this.logger.warn(`TelegramSubscription teacher upsert: ${e?.message}`); }
+
       await this.updateSession(chatId, 'VERIFIED_TEACHER', { teacherId: teacher.id });
 
       const classes = teacher.teacherClasses.map((tc) => `${tc.class.grade}-${tc.class.section}`).join(', ');
@@ -777,6 +810,14 @@ export class TelegramService {
           isTelegramActive: true,
         },
       });
+
+      try {
+        await this.prisma.telegramSubscription.upsert({
+          where: { chatId },
+          update: { username: ctx.from?.username ?? null, isActive: true, teacherId: director.id, schoolId: director.schoolId },
+          create: { chatId, username: ctx.from?.username ?? null, phone, role: 'DIRECTOR', isActive: true, teacherId: director.id, schoolId: director.schoolId },
+        });
+      } catch (e: any) { this.logger.warn(`TelegramSubscription director upsert: ${e?.message}`); }
 
       await this.updateSession(chatId, 'VERIFIED_DIRECTOR', { teacherId: director.id });
 

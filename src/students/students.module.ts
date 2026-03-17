@@ -5,6 +5,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { HikvisionModule } from '../hikvision/hikvision.module'; // ← Import
 import { TurnstileModule } from 'src/turnstile/turnstile.module';
 import { RedisModule } from '../redis/redis.module';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { RedisModule } from '../redis/redis.module';
     HikvisionModule,
     TurnstileModule,
     RedisModule,
+    AuditLogModule,
   ],
   controllers: [StudentsController],
   providers: [StudentsService],

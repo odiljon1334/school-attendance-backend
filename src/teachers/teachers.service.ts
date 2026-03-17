@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { TurnstileService } from '../turnstile/turnstile.service';
 import { CreateTeacherDto, UpdateTeacherDto } from './dto/teacher.dto';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 function pad(num: number, size: number) {
   return String(num).padStart(size, '0');
@@ -17,6 +18,7 @@ export class TeachersService {
   constructor(
     private prisma: PrismaService,
     private turnstileService: TurnstileService,
+    private auditLog: AuditLogService,
   ) {}
 
   private async nextStaffEnrollNumber(tx: PrismaService, schoolId: string) {
@@ -84,13 +86,23 @@ export class TeachersService {
         });
       }
   
-      return tx.teacher.findUnique({
+      const result = await tx.teacher.findUnique({
         where: { id: teacher.id },
         include: { teacherClasses: { include: { class: true } } },
       });
+
+      void this.auditLog.log({
+        action: 'TEACHER_CREATE',
+        entity: 'Teacher',
+        entityId: teacher.id,
+        schoolId: dto.schoolId,
+        details: { name: `${dto.firstName} ${dto.lastName}`, type: finalType },
+      });
+
+      return result;
     });
   }
-  
+
   async update(id: string, dto: UpdateTeacherDto) {
     const existing = await this.prisma.teacher.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Teacher not found');
@@ -147,10 +159,20 @@ export class TeachersService {
         });
       }
   
-      return tx.teacher.findUnique({
+      const updated = await tx.teacher.findUnique({
         where: { id },
         include: { teacherClasses: { include: { class: true } } },
       });
+
+      void this.auditLog.log({
+        action: 'TEACHER_UPDATE',
+        entity: 'Teacher',
+        entityId: id,
+        schoolId: existing.schoolId ?? undefined,
+        details: { name: `${existing.firstName} ${existing.lastName}` },
+      });
+
+      return updated;
     });
   }
 
@@ -287,6 +309,14 @@ export class TeachersService {
     await this.prisma.teacherClass.deleteMany({ where: { teacherId: id } });
     await this.prisma.attendance.deleteMany({ where: { teacherId: id } });
     await this.prisma.teacher.delete({ where: { id } });
+
+    void this.auditLog.log({
+      action: 'TEACHER_DELETE',
+      entity: 'Teacher',
+      entityId: id,
+      schoolId: teacher.schoolId ?? undefined,
+      details: { name: `${teacher.firstName} ${teacher.lastName}`, type: teacher.type },
+    });
 
     return { message: 'Teacher deleted successfully' };
   }

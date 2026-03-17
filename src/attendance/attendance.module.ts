@@ -7,15 +7,17 @@ import { RedisModule } from 'src/redis/redis.module';
 import { HikvisionModule } from 'src/hikvision/hikvision.module';
 import { WhatsappModule } from 'src/whatsapp/whatsapp.module';
 import { ConfigModule } from '@nestjs/config';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 
 @Module({
   imports: [
     PrismaModule,
     NotificationsModule,
     RedisModule,
-    WhatsappModule, 
+    WhatsappModule,
     ConfigModule,
-    forwardRef(() => HikvisionModule)
+    AuditLogModule,
+    forwardRef(() => HikvisionModule),
   ],
   controllers: [AttendanceController],
   providers: [AttendanceService],

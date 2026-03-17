@@ -6,6 +6,7 @@ import * as ExcelJS from 'exceljs';
 import { NotificationsService } from 'src/notifications/notifications.service';
 import { BillingService } from 'src/billing/billing.service';
 import { computeNextPaidUntil } from 'src/billing/billing.utils';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 @Injectable()
 export class PaymentsService {
@@ -13,6 +14,7 @@ export class PaymentsService {
     private prisma: PrismaService,
     private notifications: NotificationsService,
     private billing: BillingService,
+    private auditLog: AuditLogService,
   ) {}
 
   async create(dto: CreatePaymentDto) {
@@ -28,21 +30,31 @@ export class PaymentsService {
       throw new BadRequestException(`Payment already exists for ${dto.plan} ${dto.periodKey}`);
     }
 
-    return this.prisma.payment.create({
+    const payment = await this.prisma.payment.create({
       data: {
         student: { connect: { id: dto.studentId } },
-    
+
         plan: dto.plan,
         periodKey: dto.periodKey,
         amount: Math.round(Number(dto.amount) || 0),
-    
+
         status: dto.status ?? PaymentStatus.PENDING,
         paidDate: dto.paidDate ? new Date(dto.paidDate) : null,
         dueDate: dto.dueDate ? new Date(dto.dueDate) : new Date(),
-    
+
         notes: dto.notes ?? null,
       },
     });
+
+    void this.auditLog.log({
+      action: 'PAYMENT_CREATE',
+      entity: 'Payment',
+      entityId: payment.id,
+      schoolId: student.schoolId,
+      details: { amount: payment.amount, plan: payment.plan, periodKey: payment.periodKey, status: payment.status },
+    });
+
+    return payment;
   }
 
   async findAll(params: {

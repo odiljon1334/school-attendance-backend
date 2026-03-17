@@ -7,6 +7,7 @@ import { RedisService } from 'src/redis/redis.service';
 import { DashboardService } from 'src/dashboard/dashboard.service';
 import { ConfigService } from '@nestjs/config';
 import { WhatsappService } from 'src/whatsapp/whatsapp.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 const MIN_CHECKOUT_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 soat (checkout uchun)
 const RE_ENTRY_GRACE_MS = 10 * 60 * 1000; // 10 daqiqa
@@ -28,6 +29,7 @@ export class AttendanceService {
     private redis: RedisService,
     private configService: ConfigService,
     private wa: WhatsappService,
+    private auditLog: AuditLogService,
   ) {}
 
   // ======================================================
@@ -290,6 +292,10 @@ export class AttendanceService {
       }
     }
 
+    if (person.type === 'TEACHER' || person.type === 'DIRECTOR') {
+      await this.sendTeacherScanNotification({ person, attendance, capturePhoto, action: 'CHECK_IN' });
+    }
+
     await this.invalidateDashboardCache(person.schoolId);
 
     return { success: true, action: 'CHECK_IN', attendance };
@@ -321,6 +327,10 @@ export class AttendanceService {
       } else {
         this.logger.log(`🔕 CHECK-OUT notif suppressed (cooldown): student=${person.id}`);
       }
+    }
+
+    if (person.type === 'TEACHER' || person.type === 'DIRECTOR') {
+      await this.sendTeacherScanNotification({ person, attendance: updated, capturePhoto, action: 'CHECK_OUT' });
     }
 
     await this.invalidateDashboardCache(person.schoolId);
@@ -596,6 +606,69 @@ export class AttendanceService {
   }
 
   // ======================================================
+  // TEACHER/DIRECTOR SCAN → DIRECTOR NOTIFICATION
+  // ======================================================
+  private async sendTeacherScanNotification(params: {
+    person: PersonResolved;
+    attendance: any;
+    capturePhoto?: string;
+    action: 'CHECK_IN' | 'CHECK_OUT';
+  }) {
+    const { person, attendance, capturePhoto, action } = params;
+
+    try {
+      // Director scanned — send to school admin or skip
+      if (person.type === 'DIRECTOR') return;
+
+      // Teacher scanned — find director of this school
+      const director = await this.prisma.teacher.findFirst({
+        where: {
+          schoolId: person.schoolId,
+          type: 'DIRECTOR',
+          id: { not: person.id },
+        },
+      });
+
+      if (!director) {
+        this.logger.log(`No director found for school=${person.schoolId}, skipping teacher scan notif`);
+        return;
+      }
+
+      const TZ = 'Asia/Bishkek';
+      const timeStr = (action === 'CHECK_IN' ? attendance.checkInTime : attendance.checkOutTime)
+        ?.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
+
+      const emoji = action === 'CHECK_IN' ? '✅' : '🚪';
+      const actionLabel = action === 'CHECK_IN' ? 'Прибыл' : 'Покинул';
+      const msg =
+        `${emoji} *${person.firstName ?? ''} ${person.lastName ?? ''}* (Учитель)\n` +
+        `${actionLabel}: *${timeStr ?? '—'}*`;
+
+      // WhatsApp
+      if (director.isWhatsappActive && director.whatsappPhone) {
+        if (capturePhoto) {
+          await this.wa.sendPhoto(director.whatsappPhone, capturePhoto, msg);
+        } else {
+          await this.wa.sendText(director.whatsappPhone, msg);
+        }
+        this.logger.log(`📸 Teacher scan WA → director ${director.id} (photo: ${!!capturePhoto})`);
+      }
+
+      // Telegram
+      if (director.isTelegramActive && director.telegramChatId) {
+        if (capturePhoto) {
+          await this.telegramService.sendPhotoFromBase64(director.telegramChatId, capturePhoto, msg);
+        } else {
+          await this.telegramService.sendMessage(director.telegramChatId, msg);
+        }
+        this.logger.log(`📸 Teacher scan TG → director ${director.id}`);
+      }
+    } catch (err: any) {
+      this.logger.error(`sendTeacherScanNotification error: ${err?.message}`);
+    }
+  }
+
+  // ======================================================
   // PERSON RESOLVE
   // ======================================================
   private async resolvePerson(personKey: string): Promise<PersonResolved | null> {
@@ -852,6 +925,19 @@ export class AttendanceService {
         teacher: createAttendanceDto.teacherId ? { connect: { id: createAttendanceDto.teacherId } } : undefined,
         student: createAttendanceDto.studentId ? { connect: { id: createAttendanceDto.studentId } } : undefined,
         school: { connect: { id: createAttendanceDto.schoolId } },
+      },
+    });
+
+    void this.auditLog.log({
+      action: 'ATTENDANCE_MANUAL',
+      entity: 'Attendance',
+      entityId: attendance.id,
+      schoolId: createAttendanceDto.schoolId,
+      details: {
+        status: createAttendanceDto.status,
+        date: createAttendanceDto.date,
+        studentId: createAttendanceDto.studentId,
+        teacherId: createAttendanceDto.teacherId,
       },
     });
 

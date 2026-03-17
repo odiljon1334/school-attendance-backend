@@ -118,6 +118,9 @@ model School {
 
   enrollCounter EnrollCounter?
 
+  telegramSubscriptions TelegramSubscription[]
+  whatsappSubscriptions WhatsappSubscription[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -243,6 +246,9 @@ model Teacher {
   telegramChatId   String?
   isTelegramActive Boolean @default(false)
 
+  whatsappPhone    String?
+  isWhatsappActive Boolean @default(false)
+
   photo        String?
   facePersonId String? @unique
   enrollNumber String? @unique
@@ -254,6 +260,9 @@ model Teacher {
   payrolls           TeacherPayroll[]    @relation("TeacherPayroll")
 
   attendances Attendance[]
+
+  telegramSubscriptions  TelegramSubscription[]
+  whatsappSubscriptions  WhatsappSubscription[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -387,6 +396,9 @@ model Parent {
   updatedAt DateTime @updatedAt
 
   students StudentParent[]
+
+  telegramSubscriptions TelegramSubscription[]
+  whatsappSubscriptions WhatsappSubscription[]
 }
 
 model Attendance {
@@ -575,4 +587,64 @@ model SystemSettings {
   telegramEnabled Boolean  @default(true)
   whatsappEnabled Boolean  @default(true)
   updatedAt       DateTime @updatedAt
+}
+
+// ─── AuditLog ────────────────────────────────────────────────────────────────
+model AuditLog {
+  id       String  @id @default(uuid())
+  action   String  // "LOGIN", "LOGIN_FAILED", "TERMINAL_SCAN", "STUDENT_CREATE", ...
+  entity   String  // "Auth", "Student", "Teacher", "Attendance", "Payment"
+  entityId String?
+  details  Json?   // { name, before, after, reason, ... }
+  ip       String?
+  userId   String?
+  schoolId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([schoolId, createdAt])
+  @@index([action, createdAt])
+  @@index([ip, createdAt])
+  @@index([entity, entityId])
+}
+
+// ─── Messaging Subscriptions ─────────────────────────────────────────────────
+model TelegramSubscription {
+  id       String   @id @default(uuid())
+  chatId   String   @unique
+  username String?
+  phone    String?
+  role     UserRole
+  isActive Boolean  @default(true)
+
+  schoolId  String?
+  school    School?  @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  parentId  String?
+  parent    Parent?  @relation(fields: [parentId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WhatsappSubscription {
+  id    String   @id @default(uuid())
+  phone String   @unique
+  chatId String?
+  name  String?
+  role  UserRole @default(PARENT)
+  isActive Boolean @default(true)
+
+  schoolId  String?
+  school    School?  @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+  parentId  String?  @unique
+  parent    Parent?  @relation(fields: [parentId], references: [id], onDelete: SetNull)
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+
+  lastMessageAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

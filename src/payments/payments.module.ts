@@ -9,6 +9,7 @@ import { PaymentWebhookController } from './payment-webhook.controller';
 import { FreedomPayService } from './freedom-pay.service';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { ConfigModule } from '@nestjs/config';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { ConfigModule } from '@nestjs/config';
     BillingModule,
     forwardRef(() => WhatsappModule),
     ConfigModule,
+    AuditLogModule,
   ],
   controllers: [
     PaymentsController,

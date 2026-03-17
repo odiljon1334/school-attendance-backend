@@ -4,12 +4,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { LoginDto } from './dto/auth.dto';
 import { RegisterDto } from './dto/auth.dto';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private auditLog: AuditLogService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -63,7 +65,7 @@ export class AuthService {
     };
   }
 
-  async login(loginDto: LoginDto) {
+  async login(loginDto: LoginDto, ip?: string) {
     // Find user by username
     const user = await this.prisma.user.findUnique({
       where: { username: loginDto.username },
@@ -78,19 +80,50 @@ export class AuthService {
     });
 
     if (!user) {
+      await this.auditLog.log({
+        action: 'LOGIN_FAILED',
+        entity: 'Auth',
+        details: { username: loginDto.username, reason: 'user_not_found' },
+        ip,
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
     // Check if user is active
     if (user.status !== 'ACTIVE') {
+      await this.auditLog.log({
+        action: 'LOGIN_FAILED',
+        entity: 'Auth',
+        entityId: user.id,
+        details: { username: loginDto.username, reason: 'account_inactive' },
+        ip,
+        userId: user.id,
+      });
       throw new UnauthorizedException('Account is not active');
     }
 
     // Verify password
     const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
     if (!isPasswordValid) {
+      await this.auditLog.log({
+        action: 'LOGIN_FAILED',
+        entity: 'Auth',
+        entityId: user.id,
+        details: { username: loginDto.username, reason: 'wrong_password' },
+        ip,
+        userId: user.id,
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
+
+    await this.auditLog.log({
+      action: 'LOGIN',
+      entity: 'Auth',
+      entityId: user.id,
+      details: { username: user.username, role: user.role },
+      ip,
+      userId: user.id,
+    });
 
     // Generate token
     const token = this.generateToken(user);

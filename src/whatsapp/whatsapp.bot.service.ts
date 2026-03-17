@@ -336,6 +336,32 @@ export class WhatsappBotService {
         data: { whatsappPhone: phone, isWhatsappActive: true },
       });
 
+      // WhatsappSubscription upsert
+      const firstSchoolId = parent.students?.[0]?.student?.school?.id ?? null;
+      try {
+        await this.prisma.whatsappSubscription.upsert({
+          where: { phone },
+          update: {
+            isActive: true,
+            lastMessageAt: new Date(),
+            parentId: parent.id,
+            schoolId: firstSchoolId,
+            name: parent.firstName ?? null,
+          },
+          create: {
+            phone,
+            chatId: `${phone.replace(/[^\d]/g, '')}@s.whatsapp.net`,
+            name: parent.firstName ?? null,
+            role: 'PARENT',
+            isActive: true,
+            parentId: parent.id,
+            schoolId: firstSchoolId,
+          },
+        });
+      } catch (e: any) {
+        this.logger.warn(`WhatsappSubscription upsert failed: ${e?.message}`);
+      }
+
       // OTP ni o'chiramiz
       await this.redis.del(`otp:wa:${phone}`);
 
