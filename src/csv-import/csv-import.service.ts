@@ -228,6 +228,16 @@ export class CsvImportService {
           });
         }
 
+        // ✅ Duplicate check — bir xil ism+familiya+sinf allaqachon bor bo'lsa o'tkazib ketamiz
+        const existing = await this.prisma.student.findFirst({
+          where: { classId: classRecord.id, firstName, lastName },
+        });
+        if (existing) {
+          // Qayta import qilinganda duplikat yaratmaydi
+          results.success++;
+          continue;
+        }
+
         // ✅ create student
         const importKey = this.makeImportKey(schoolId, results.total);
 
