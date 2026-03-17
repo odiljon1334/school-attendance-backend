@@ -14,21 +14,17 @@ export class SystemSettingsService {
   constructor(private prisma: PrismaService) {}
 
   async get(): Promise<SystemSettingsData> {
-    let settings = await this.prisma.systemSettings.findUnique({
+    // upsert — race condition bo'lmaydi (findUnique+create pattern P2002 beradi)
+    const settings = await this.prisma.systemSettings.upsert({
       where: { id: SINGLETON_ID },
+      update: {},
+      create: {
+        id: SINGLETON_ID,
+        smsEnabled: true,
+        telegramEnabled: true,
+        whatsappEnabled: true,
+      },
     });
-
-    if (!settings) {
-      // Create default singleton row
-      settings = await this.prisma.systemSettings.create({
-        data: {
-          id: SINGLETON_ID,
-          smsEnabled: true,
-          telegramEnabled: true,
-          whatsappEnabled: true,
-        },
-      });
-    }
 
     return {
       smsEnabled: settings.smsEnabled,
