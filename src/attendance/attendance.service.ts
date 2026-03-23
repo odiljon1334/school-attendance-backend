@@ -472,8 +472,8 @@ export class AttendanceService {
           this.logger.log(`WA check-in -> ${parent.whatsappPhone} (photo: ${!!capturePhoto})`);
         }
 
-        // ✅ SMS — RUS TILI (smsService.buildCheckInMessage allaqachon rus tilida)
-        if (parent.phone && canSend.sms) {
+        // ✅ SMS — faqat WhatsApp ulangan bo'lmagan ota-onalarga
+        if (parent.phone && canSend.sms && !parent.isWhatsappActive) {
           let smsMessage = this.smsService.buildCheckInMessage({
             parentName: `${parent.firstName} ${parent.lastName}`,
             studentName: `${person.firstName} ${person.lastName}`,
@@ -482,12 +482,12 @@ export class AttendanceService {
             lateMinutes,
           });
 
-          if (!parent.isWhatsappActive && cleanBotPhone) {
+          if (cleanBotPhone) {
             smsMessage += `\n\nПодключитесь к боту WhatsApp:\nwa.me/${cleanBotPhone}`;
           }
 
           await this.smsService.sendSms(parent.phone, smsMessage);
-          this.logger.log(`SMS check-in -> ${parent.phone} (wa_link: ${!parent.isWhatsappActive})`);
+          this.logger.log(`SMS check-in -> ${parent.phone}`);
         }
 
         // ✅ Telegram — RUS TILI
@@ -550,8 +550,8 @@ export class AttendanceService {
           this.logger.log(`WA check-out -> ${parent.whatsappPhone} (photo: ${!!capturePhoto})`);
         }
 
-        // ✅ SMS — RUS TILI
-        if (parent.phone && canSend.sms) {
+        // ✅ SMS — faqat WhatsApp ulangan bo'lmagan ota-onalarga
+        if (parent.phone && canSend.sms && !parent.isWhatsappActive) {
           const smsMessage = this.smsService.buildCheckOutMessage({
             parentName: `${parent.firstName} ${parent.lastName}`,
             studentName: `${person.firstName} ${person.lastName}`,
@@ -609,7 +609,7 @@ export class AttendanceService {
           `Это засчитывается как 1 день пропуска.\n\n` +
           `Администрация школы.`;
 
-        if (parent.phone && canSend.sms) {
+        if (parent.phone && canSend.sms && !parent.isWhatsappActive) {
           await this.smsService.sendSms(parent.phone, message);
           this.logger.log(`📱 Absent SMS → ${parent.phone}`);
         }

@@ -144,7 +144,8 @@ export class AbsentDaysCron {
             this.logger.log(`📱 Absent-3days TG → ${parent.telegramChatId} (${studentName})`);
           }
 
-          if (parent.phone && student.isSmsEnabled) {
+          // SMS faqat WhatsApp ulangan bo'lmagan ota-onalarga
+          if (parent.phone && student.isSmsEnabled && !parent.isWhatsappActive) {
             const smsMsg =
               `Уважаемый(ая) родитель! Ваш ребёнок ${studentName} не посещает школу ` +
               `${ABSENT_DAYS_THRESHOLD} дня подряд. Свяжитесь с директором или классным руководителем.`;
