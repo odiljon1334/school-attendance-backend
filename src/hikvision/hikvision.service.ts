@@ -111,12 +111,6 @@ export class HikvisionService {
     ]);
 
     if (student) {
-      // Terminal rasm yubormasa → enrollment fotosini fallback sifatida ishlatamiz
-      const photoToSend = capturePhoto ?? student.photo ?? undefined;
-      if (!capturePhoto && student.photo) {
-        this.logger.log(`📸 Using enrollment photo for student (no terminal snapshot)`);
-      }
-
       void this.auditLog.log({
         action: 'TERMINAL_SCAN',
         entity: 'Student',
@@ -130,7 +124,7 @@ export class HikvisionService {
         deviceId,
         timestamp: now.toISOString(),
         eventType: 'FACE_RECOGNITION',
-        capturePhoto: photoToSend,
+        capturePhoto,
       });
     }
 

@@ -234,9 +234,13 @@ export class NotificationsService {
 
     const waPromise =
       wantWa && canWa
-        ? this.whatsappService.sendText(whatsappPhone!, `*${title}*\n\n${message}`)
-            .then(() => true)
-            .catch(() => false)
+        ? (mediaBase64
+            ? this.whatsappService.sendPhoto(whatsappPhone!, mediaBase64, `*${title}*\n\n${message}`)
+                .then(() => true)
+                .catch(() => this.whatsappService.sendText(whatsappPhone!, `*${title}*\n\n${message}`).then(() => true).catch(() => false))
+            : this.whatsappService.sendText(whatsappPhone!, `*${title}*\n\n${message}`)
+                .then(() => true)
+                .catch(() => false))
         : Promise.resolve(false as boolean | false);
 
     const [tgRes, smsRes, waRes] = await Promise.allSettled([tgPromise, smsPromise, waPromise]);
