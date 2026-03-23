@@ -14,7 +14,13 @@ async function bootstrap() {
   // Masalan: http://localhost:3000,http://46.202.191.210,https://yourdomain.com
   const corsOrigins = process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
-    : ['http://localhost:3000', 'http://192.168.1.3:3000'];
+    : [
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'http://localhost:4173',
+        'http://192.168.1.3:3000',
+        'http://192.168.0.213:5173',
+      ];
 
   // Gzip compression — response hajmini 2-5x kamaytiradi
   app.use(compression());

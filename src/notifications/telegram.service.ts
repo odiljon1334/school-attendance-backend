@@ -180,8 +180,17 @@ export class TelegramService {
       await ctx.reply(help);
     });
 
-    // Start polling
-    this.bot.launch();
+    // Start polling — 409 Conflict (boshqa instance ishlab tursa) appni crash qilmasin
+    this.bot.launch().catch((err: any) => {
+      if (err?.response?.error_code === 409) {
+        this.logger.warn(
+          '⚠️  Telegram bot 409 Conflict: another instance is already polling. ' +
+          'Bot disabled in this process. Stop the other instance to re-enable.',
+        );
+      } else {
+        this.logger.error(`Telegram bot launch error: ${err?.message || err}`);
+      }
+    });
     this.logger.log('Telegram bot started polling');
 
     // Graceful shutdown
