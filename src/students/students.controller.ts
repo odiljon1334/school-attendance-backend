@@ -51,6 +51,17 @@ export class StudentsController {
     return this.studentsService.findAll(schoolId, classId);
   }
 
+  @Get('photo-status')
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.DISTRICT_ADMIN,
+    UserRole.SCHOOL_ADMIN,
+    UserRole.DIRECTOR,
+  )
+  getPhotoStatus(@Query('schoolId') schoolId: string) {
+    return this.studentsService.getPhotoStatus(schoolId);
+  }
+
   @Get(':id')
   @Roles(
     UserRole.SUPER_ADMIN,

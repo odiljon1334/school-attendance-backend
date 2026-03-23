@@ -1,6 +1,7 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { AttendanceService } from './attendance.service';
 import { AttendanceController } from './attendance.controller';
+import { AbsentDaysCron } from './absent-days.cron';
 import { PrismaModule } from '../prisma/prisma.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { RedisModule } from 'src/redis/redis.module';
@@ -20,7 +21,7 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
     forwardRef(() => HikvisionModule),
   ],
   controllers: [AttendanceController],
-  providers: [AttendanceService],
+  providers: [AttendanceService, AbsentDaysCron],
   exports: [AttendanceService],
 })
 export class AttendanceModule {}

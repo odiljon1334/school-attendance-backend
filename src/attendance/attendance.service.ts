@@ -431,6 +431,13 @@ export class AttendanceService {
     capturePhoto?: string;
   }) {
     const { person, attendance, isLate, lateMinutes, capturePhoto } = params;
+
+    // Rasmi yo'q student uchun hech qanday xabar yuborilmaydi
+    if (person.type === 'STUDENT' && !person.photo) {
+      this.logger.log(`⛔ Check-in notif skipped (no photo): student=${person.id}`);
+      return;
+    }
+
     const canSend = await this.canSendNotification(person);
 
     const TZ = 'Asia/Bishkek';
@@ -510,6 +517,12 @@ export class AttendanceService {
   // ======================================================
   private async sendCheckOutNotification(params: { person: PersonResolved; attendance: any; capturePhoto?: string }) {
     const { person, attendance, capturePhoto } = params;
+
+    if (person.type === 'STUDENT' && !person.photo) {
+      this.logger.log(`⛔ Check-out notif skipped (no photo): student=${person.id}`);
+      return;
+    }
+
     const canSend = await this.canSendNotification(person);
 
     const TZ = 'Asia/Bishkek';
@@ -576,6 +589,12 @@ export class AttendanceService {
   // ======================================================
   private async sendAbsentNotification(params: { person: PersonResolved; totalLateMinutes: number }) {
     const { person, totalLateMinutes } = params;
+
+    if (person.type === 'STUDENT' && !person.photo) {
+      this.logger.log(`⛔ Absent notif skipped (no photo): student=${person.id}`);
+      return;
+    }
+
     const canSend = await this.canSendNotification(person);
 
     const totalHours = Math.floor(totalLateMinutes / 60);

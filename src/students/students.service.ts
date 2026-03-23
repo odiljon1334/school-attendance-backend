@@ -414,6 +414,53 @@ export class StudentsService {
     };
   }
 
+  async getPhotoStatus(schoolId: string) {
+    const students = await this.prisma.student.findMany({
+      where: { schoolId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        photo: true,
+        class: { select: { id: true, grade: true, section: true } },
+      },
+      orderBy: [{ class: { grade: 'asc' } }, { lastName: 'asc' }],
+    });
+
+    const classMap = new Map<string, {
+      classId: string;
+      className: string;
+      total: number;
+      withPhoto: number;
+      withoutPhoto: number;
+      studentsWithoutPhoto: { id: string; name: string }[];
+    }>();
+
+    for (const s of students) {
+      const classId = s.class?.id ?? 'NO_CLASS';
+      const className = s.class ? `${s.class.grade}-${s.class.section}` : 'Без класса';
+
+      if (!classMap.has(classId)) {
+        classMap.set(classId, { classId, className, total: 0, withPhoto: 0, withoutPhoto: 0, studentsWithoutPhoto: [] });
+      }
+
+      const entry = classMap.get(classId)!;
+      entry.total++;
+      if (s.photo) {
+        entry.withPhoto++;
+      } else {
+        entry.withoutPhoto++;
+        entry.studentsWithoutPhoto.push({ id: s.id, name: `${s.firstName} ${s.lastName}` });
+      }
+    }
+
+    const classes = Array.from(classMap.values()).sort((a, b) => a.className.localeCompare(b.className));
+    const total = students.length;
+    const withPhoto = students.filter((s) => s.photo).length;
+
+    return { total, withPhoto, withoutPhoto: total - withPhoto, classes };
+  }
+
   async syncPhotosToTurnstile(schoolId: string) {
     const students = await this.prisma.student.findMany({
       where: { schoolId, photo: { not: null } },
