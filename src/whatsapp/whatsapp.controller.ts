@@ -1,5 +1,6 @@
 import {
     Controller,
+    Get,
     Post,
     Body,
     Headers,
@@ -20,6 +21,15 @@ import {
       private readonly configService: ConfigService,
     ) {}
   
+    // ─────────────────────────────────────────────
+    // WHAPI WEBHOOK VERIFY (GET)
+    // ─────────────────────────────────────────────
+    @Get('webhook')
+    @HttpCode(HttpStatus.OK)
+    verifyWebhook() {
+      return { ok: true, status: 'webhook active' };
+    }
+
     // ─────────────────────────────────────────────
     // WHAPI WEBHOOK
     // POST /whatsapp/webhook
