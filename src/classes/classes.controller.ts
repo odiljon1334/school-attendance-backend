@@ -78,8 +78,8 @@ export class ClassesController {
     UserRole.SCHOOL_ADMIN,
   )
   @HttpCode(HttpStatus.OK)
-  remove(@Param('id') id: string) {
-    return this.classesService.remove(id);
+  remove(@Param('id') id: string, @Query('force') force?: string) {
+    return this.classesService.remove(id, force === 'true');
   }
 
   // POST /classes/promote-year  — yangi o'quv yiliga o'tish

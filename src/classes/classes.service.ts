@@ -273,7 +273,7 @@ export class ClassesService {
     };
   }
 
-  async remove(id: string) {
+  async remove(id: string, force = false) {
     const cls = await this.prisma.class.findUnique({
       where: { id },
       include: {
@@ -288,13 +288,25 @@ export class ClassesService {
     }
 
     if (cls._count.students > 0) {
-      throw new ConflictException(
-        `Cannot delete class with ${cls._count.students} students. Move students first.`,
-      );
+      if (!force) {
+        throw new ConflictException(
+          `Cannot delete class with ${cls._count.students} students. Use ?force=true to delete with students.`,
+        );
+      }
+      // force=true: delete all students and related data first
+      const students = await this.prisma.student.findMany({
+        where: { classId: id },
+        select: { id: true },
+      });
+      const studentIds = students.map((s) => s.id);
+      await this.prisma.studentParent.deleteMany({ where: { studentId: { in: studentIds } } });
+      await this.prisma.attendance.deleteMany({ where: { studentId: { in: studentIds } } });
+      await this.prisma.payment.deleteMany({ where: { studentId: { in: studentIds } } });
+      await this.prisma.student.deleteMany({ where: { classId: id } });
     }
 
     await this.prisma.class.delete({ where: { id } });
     await this.invalidateClassCache(cls.schoolId ?? undefined);
-    return { message: 'Class deleted successfully' };
+    return { message: 'Class deleted successfully', studentsDeleted: cls._count.students };
   }
 }
