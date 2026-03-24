@@ -201,7 +201,10 @@ export class NotificationsService {
     const normalizedPhone = this.normalizePhone(phone);
     const canSms = !!normalizedPhone;
     const canTg = !!(isTelegramActive && telegramChatId);
-    const canWa = !!(isWhatsappActive && whatsappPhone);
+    // WHAPI orqali istalgan raqamga yuborish mumkin — bot bosmaganda ham.
+    // whatsappPhone bo'lmasa oddiy phone ni ishlatamiz (fallback).
+    const effectiveWaPhone = whatsappPhone || normalizedPhone;
+    const canWa = !!effectiveWaPhone;
 
     const isAll = channel === 'ALL' || (channel as string) === BroadcastChannel.ALL;
     const wantSms = isAll || (channel as string) === BroadcastChannel.SMS;
@@ -235,10 +238,10 @@ export class NotificationsService {
     const waPromise =
       wantWa && canWa
         ? (mediaBase64
-            ? this.whatsappService.sendPhoto(whatsappPhone!, mediaBase64, `*${title}*\n\n${message}`)
+            ? this.whatsappService.sendPhoto(effectiveWaPhone!, mediaBase64, `*${title}*\n\n${message}`)
                 .then(() => true)
-                .catch(() => this.whatsappService.sendText(whatsappPhone!, `*${title}*\n\n${message}`).then(() => true).catch(() => false))
-            : this.whatsappService.sendText(whatsappPhone!, `*${title}*\n\n${message}`)
+                .catch(() => this.whatsappService.sendText(effectiveWaPhone!, `*${title}*\n\n${message}`).then(() => true).catch(() => false))
+            : this.whatsappService.sendText(effectiveWaPhone!, `*${title}*\n\n${message}`)
                 .then(() => true)
                 .catch(() => false))
         : Promise.resolve(false as boolean | false);

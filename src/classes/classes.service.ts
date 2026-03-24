@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -163,6 +163,114 @@ export class ClassesService {
 
     await this.invalidateClassCache(existing.schoolId ?? undefined);
     return result;
+  }
+
+  // ==========================================
+  // ✅ YANGI O'QUV YILI — sinflarni bir daraja ko'tarish
+  // 11-yillik: max grade = 11, 12-yillik (section "(12)" bor): max grade = 12
+  // Bitiruvchilar: maxGrade ga yetgan o'quvchilar isGraduated = true bo'ladi
+  // ==========================================
+  async promoteYear(schoolId: string, toAcademicYear?: string) {
+    if (!schoolId) throw new BadRequestException('schoolId majburiy');
+
+    // Eng so'ngi academicYear ni aniqlash
+    const latestClass = await this.prisma.class.findFirst({
+      where: { schoolId },
+      orderBy: { academicYear: 'desc' },
+    });
+
+    if (!latestClass) throw new NotFoundException('Bu maktabda sinflar topilmadi');
+
+    const fromYear = latestClass.academicYear;
+    const newYear = toAcademicYear ?? String(parseInt(fromYear) + 1);
+
+    if (newYear === fromYear) {
+      throw new BadRequestException(`Yangi o'quv yili (${newYear}) joriy yil bilan bir xil`);
+    }
+
+    // Joriy yildagi barcha sinflar + o'quvchilar
+    const classes = await this.prisma.class.findMany({
+      where: { schoolId, academicYear: fromYear },
+      include: { students: { select: { id: true } } },
+    });
+
+    if (!classes.length) {
+      throw new NotFoundException(`${fromYear} o'quv yilida sinflar topilmadi`);
+    }
+
+    const results = {
+      fromYear,
+      toYear: newYear,
+      promoted: 0,       // ko'tarilgan o'quvchilar soni
+      graduated: 0,      // bitiruvchilar soni
+      newClasses: [] as string[],
+    };
+
+    for (const cls of classes) {
+      // 12-yillik sinf: section da "(12)" bor
+      const is12year = cls.section.includes('(12)');
+      const maxGrade = is12year ? 12 : 11;
+
+      if (cls.grade >= maxGrade) {
+        // BITIRUVCHILAR — klassdan chiqarish (schoolId saqlab qolamiz)
+        // Bitiruvchi o'quvchilar uchun alohida "graduated" klasi yaratamiz yoki
+        // ularni schoolda qoldirib, classId ni null qila olmaymiz (required field).
+        // Shuning uchun "Bitiruvchilar" nomli maxsus sinf yaratamiz
+        let graduatedClass = await this.prisma.class.findFirst({
+          where: { schoolId, grade: 0, section: 'Bitiruvchilar', academicYear: fromYear },
+        });
+        if (!graduatedClass) {
+          graduatedClass = await this.prisma.class.create({
+            data: { schoolId, grade: 0, section: 'Bitiruvchilar', academicYear: fromYear },
+          });
+        }
+
+        if (cls.students.length > 0) {
+          await this.prisma.student.updateMany({
+            where: { classId: cls.id },
+            data: { classId: graduatedClass.id },
+          });
+          results.graduated += cls.students.length;
+        }
+      } else {
+        // ODDIY KO'TARISH — grade + 1, yangi o'quv yili
+        const newGrade = cls.grade + 1;
+
+        // Yangi sinf allaqachon bor bo'lsa, foydalana olamiz
+        let newClass = await this.prisma.class.findFirst({
+          where: { schoolId, grade: newGrade, section: cls.section, academicYear: newYear },
+        });
+        if (!newClass) {
+          newClass = await this.prisma.class.create({
+            data: {
+              schoolId,
+              grade: newGrade,
+              section: cls.section,
+              academicYear: newYear,
+              shift: cls.shift ?? null,
+              startTime: cls.startTime ?? null,
+              endTime: cls.endTime ?? null,
+            },
+          });
+          results.newClasses.push(`${newGrade}-${cls.section}`);
+        }
+
+        if (cls.students.length > 0) {
+          await this.prisma.student.updateMany({
+            where: { classId: cls.id },
+            data: { classId: newClass.id },
+          });
+          results.promoted += cls.students.length;
+        }
+      }
+    }
+
+    await this.invalidateClassCache(schoolId);
+
+    return {
+      message: `O'quv yili ${fromYear} → ${newYear} muvaffaqiyatli o'tkazildi`,
+      ...results,
+    };
   }
 
   async remove(id: string) {

@@ -208,10 +208,12 @@ export class CsvImportService {
           throw new Error('Обязательные поля отсутствуют: Класс, Имя, Фамилия');
         }
 
-        // "9-A" format
-        const [gradeStr, sectionRaw] = classSection.split('-');
-        const grade = parseInt((gradeStr || '').trim(), 10);
-        const section = (sectionRaw || '').trim();
+        // "9-A" or "1-А-2" (second shift) format
+        const dashIdx = classSection.indexOf('-');
+        const gradeStr = dashIdx >= 0 ? classSection.slice(0, dashIdx) : classSection;
+        const sectionRaw = dashIdx >= 0 ? classSection.slice(dashIdx + 1) : '';
+        const grade = parseInt(gradeStr.trim(), 10);
+        const section = sectionRaw.trim();
 
         if (!Number.isFinite(grade) || grade <= 0 || !section) {
           throw new Error(`Неверный формат класса: "${classSection}" (пример: 9-А)`);

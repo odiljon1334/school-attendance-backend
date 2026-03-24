@@ -81,4 +81,15 @@ export class ClassesController {
   remove(@Param('id') id: string) {
     return this.classesService.remove(id);
   }
+
+  // POST /classes/promote-year  — yangi o'quv yiliga o'tish
+  @Post('promote-year')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  promoteYear(
+    @Body('schoolId') schoolId: string,
+    @Body('toAcademicYear') toAcademicYear?: string,
+  ) {
+    return this.classesService.promoteYear(schoolId, toAcademicYear);
+  }
 }

@@ -421,6 +421,54 @@ export class AttendanceService {
   }
 
   // ======================================================
+  // WA HELPERS
+  // ======================================================
+
+  /** Birinchi marta yuborilayotgan bo'lsa — professional tanishtiruv xabari */
+  private async sendWaWelcomeIfNeeded(
+    phone: string,
+    parent: any,
+    student: any,
+    school: any,
+  ): Promise<void> {
+    const key = `wa:welcome:${parent.id}`;
+    if (await this.redis.get(key)) return;
+
+    const parentName = `${parent.firstName || ''} ${parent.lastName || ''}`.trim() || 'Hurmatli ota-ona';
+    const studentName = `${student.firstName} ${student.lastName}`.trim();
+    const schoolName = school?.name ?? 'Maktab';
+
+    const msg =
+      `👋 Ассаламу алейкум, уважаемый(ая) *${parentName}*!\n\n` +
+      `Вы подключены к автоматической системе оповещения учебного заведения:\n` +
+      `🏫 *${schoolName}*\n\n` +
+      `Данный сервис будет информировать вас о посещаемости вашего ребёнка — *${studentName}*.\n\n` +
+      `📌 *Что вы будете получать:*\n` +
+      `• ✅ Уведомление о приходе в школу (с фото)\n` +
+      `• ⏰ Уведомление об опоздании\n` +
+      `• 🚪 Уведомление об уходе из школы\n` +
+      `• ❌ Уведомление об отсутствии\n\n` +
+      `По вопросам обращайтесь к администрации школы.\n\n` +
+      `_${schoolName} — система контроля посещаемости_`;
+
+    await this.wa.sendText(phone, msg).catch(() => {});
+    await this.redis.set(key, '1');
+  }
+
+  /** Har bir WA xabardan keyin 3 ta tezkor tugma yuboradi */
+  private async sendWaNotifButtons(phone: string): Promise<void> {
+    await this.wa.sendButtons(
+      phone,
+      'Выберите действие:',
+      [
+        { id: 'today', title: '📋 Меню' },
+        { id: 'school', title: 'ℹ️ Инфо' },
+        { id: 'pay', title: '💳 Оплата' },
+      ],
+    ).catch(() => {}); // non-critical — tugma ishlamasa o'tkazib ketamiz
+  }
+
+  // ======================================================
   // CHECK-IN NOTIFICATION
   // ======================================================
   private async sendCheckInNotification(params: {
@@ -432,12 +480,6 @@ export class AttendanceService {
   }) {
     const { person, attendance, isLate, lateMinutes, capturePhoto } = params;
 
-    // Rasmi yo'q student uchun hech qanday xabar yuborilmaydi
-    if (person.type === 'STUDENT' && !person.photo) {
-      this.logger.log(`⛔ Check-in notif skipped (no photo): student=${person.id}`);
-      return;
-    }
-
     const canSend = await this.canSendNotification(person);
 
     const TZ = 'Asia/Bishkek';
@@ -447,64 +489,65 @@ export class AttendanceService {
     const date = new Date().toLocaleDateString('ru-RU', {
       day: '2-digit', month: '2-digit', year: 'numeric', timeZone: TZ,
     });
-
-    const botPhone = this.configService.get<string>('WHATSAPP_BOT_PHONE') ?? '';
-    const cleanBotPhone = botPhone.replace(/[^\d]/g, '');
+    const school = (person as any).school;
+    const studentName = `${person.firstName} ${person.lastName}`;
+    const photoToSend = capturePhoto || person.photo || null;
 
     for (const parent of person.parents || []) {
       try {
-        // ✅ WhatsApp — RUS TILI (foto bilan!)
-        if (parent.isWhatsappActive && parent.whatsappPhone) {
-          const waMsg =
-            `*ПОСЕЩАЕМОСТЬ*\n\n` +
-            `Здравствуйте, уважаемый(ая) ${parent.firstName} ${parent.lastName}!\n\n` +
-            `Ученик: *${person.firstName} ${person.lastName}*\n` +
-            `Прибыл в школу: *${time}*` +
-            (isLate ? `\nОпоздание: ${lateMinutes} мин` : '') +
-            `\nДата: ${date}\n\nАдминистрация школы.`;
+        const parentName = `${parent.firstName || ''} ${parent.lastName || ''}`.trim();
+        const effectiveWaPhone = parent.whatsappPhone || parent.phone;
 
-          if (capturePhoto) {
-            // Foto bilan yuborish — Whapi /messages/image
-            await this.wa.sendPhoto(parent.whatsappPhone, capturePhoto, waMsg);
+        // ✅ WhatsApp — foto + tanishtiruv (birinchi marta) + tugmalar
+        if (effectiveWaPhone) {
+          await this.sendWaWelcomeIfNeeded(effectiveWaPhone, parent, person, school);
+
+          const waMsg =
+            `*ПОСЕЩАЕМОСТЬ* 🏫\n\n` +
+            `Здравствуйте, *${parentName}*!\n\n` +
+            `🎒 *${studentName}*\n` +
+            (isLate
+              ? `⏰ Опоздал(а) на *${lateMinutes} мин*\nВремя: ${time}`
+              : `✅ Прибыл(а) в школу\n🕐 Время: *${time}*`) +
+            `\n📅 ${date}\n\n_${school?.name ?? 'Администрация школы'}_`;
+
+          if (photoToSend) {
+            await this.wa.sendPhoto(effectiveWaPhone, photoToSend, waMsg).catch(
+              () => this.wa.sendText(effectiveWaPhone, waMsg).catch(() => {}),
+            );
           } else {
-            await this.wa.sendText(parent.whatsappPhone, waMsg);
+            await this.wa.sendText(effectiveWaPhone, waMsg).catch(() => {});
           }
-          this.logger.log(`WA check-in -> ${parent.whatsappPhone} (photo: ${!!capturePhoto})`);
+          await this.sendWaNotifButtons(effectiveWaPhone);
+          this.logger.log(`WA check-in → ${effectiveWaPhone} (photo: ${!!photoToSend})`);
         }
 
-        // ✅ SMS — faqat WhatsApp ulangan bo'lmagan ota-onalarga
-        if (parent.phone && canSend.sms && !parent.isWhatsappActive) {
-          let smsMessage = this.smsService.buildCheckInMessage({
-            parentName: `${parent.firstName} ${parent.lastName}`,
-            studentName: `${person.firstName} ${person.lastName}`,
+        // ✅ SMS — WhatsApp yo'q bo'lgan ota-onalarga
+        if (parent.phone && canSend.sms && !effectiveWaPhone) {
+          const smsMessage = this.smsService.buildCheckInMessage({
+            parentName,
+            studentName,
             time,
             isLate,
             lateMinutes,
           });
-
-          if (cleanBotPhone) {
-            smsMessage += `\n\nПодключитесь к боту WhatsApp:\nwa.me/${cleanBotPhone}`;
-          }
-
           await this.smsService.sendSms(parent.phone, smsMessage);
-          this.logger.log(`SMS check-in -> ${parent.phone}`);
+          this.logger.log(`SMS check-in → ${parent.phone}`);
         }
 
-        // ✅ Telegram — RUS TILI
+        // ✅ Telegram
         if (parent.isTelegramActive && parent.telegramChatId && canSend.telegram) {
-          const telegramMessage =
-            `Здравствуйте, уважаемый(ая) ${parent.firstName} ${parent.lastName}!\n\n` +
-            `Ваш ребёнок: ${person.firstName} ${person.lastName}\n` +
-            `Прибыл в школу: ${time}` +
-            (isLate ? `\nОпоздание: ${lateMinutes} мин` : '') +
+          const tgMsg =
+            `Здравствуйте, ${parentName}!\n\n` +
+            `Ваш ребёнок: ${studentName}\n` +
+            (isLate ? `Опоздал(а) на ${lateMinutes} мин. Время: ${time}` : `Прибыл(а) в школу. Время: ${time}`) +
             `\nДата: ${date}\n\nАдминистрация школы.`;
-
           if (capturePhoto) {
-            await this.telegramService.sendPhotoFromBase64(parent.telegramChatId, capturePhoto, telegramMessage);
+            await this.telegramService.sendPhotoFromBase64(parent.telegramChatId, capturePhoto, tgMsg);
           } else {
-            await this.telegramService.sendMessage(parent.telegramChatId, telegramMessage);
+            await this.telegramService.sendMessage(parent.telegramChatId, tgMsg);
           }
-          this.logger.log(`TG check-in -> ${parent.telegramChatId}`);
+          this.logger.log(`TG check-in → ${parent.telegramChatId}`);
         }
       } catch (error: any) {
         this.logger.error(`Check-in notif error (parent ${parent.id}): ${error?.message}`);
@@ -518,65 +561,70 @@ export class AttendanceService {
   private async sendCheckOutNotification(params: { person: PersonResolved; attendance: any; capturePhoto?: string }) {
     const { person, attendance, capturePhoto } = params;
 
-    if (person.type === 'STUDENT' && !person.photo) {
-      this.logger.log(`⛔ Check-out notif skipped (no photo): student=${person.id}`);
-      return;
-    }
-
     const canSend = await this.canSendNotification(person);
 
     const TZ = 'Asia/Bishkek';
     const checkInTime = attendance.checkInTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
     const checkOutTime = attendance.checkOutTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
     const date = new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: TZ });
+    const school = (person as any).school;
+    const studentName = `${person.firstName} ${person.lastName}`;
+    const photoToSend = capturePhoto || person.photo || null;
 
     for (const parent of person.parents || []) {
       try {
-        // ✅ WhatsApp — RUS TILI (foto bilan!)
-        if (parent.isWhatsappActive && parent.whatsappPhone) {
-          const waMsg =
-            `*УЧЕНИК ПОКИНУЛ ШКОЛУ*\n\n` +
-            `Здравствуйте, уважаемый(ая) ${parent.firstName} ${parent.lastName}!\n\n` +
-            `Ученик: *${person.firstName} ${person.lastName}*\n` +
-            `Покинул школу: *${checkOutTime}*\n` +
-            `Прибыл: ${checkInTime}\n` +
-            `Дата: ${date}\n\nАдминистрация школы.`;
+        const parentName = `${parent.firstName || ''} ${parent.lastName || ''}`.trim();
+        const effectiveWaPhone = parent.whatsappPhone || parent.phone;
 
-          if (capturePhoto) {
-            await this.wa.sendPhoto(parent.whatsappPhone, capturePhoto, waMsg);
+        // ✅ WhatsApp
+        if (effectiveWaPhone) {
+          await this.sendWaWelcomeIfNeeded(effectiveWaPhone, parent, person, school);
+
+          const waMsg =
+            `*УЧЕНИК ПОКИНУЛ ШКОЛУ* 🚪\n\n` +
+            `Здравствуйте, *${parentName}*!\n\n` +
+            `🎒 *${studentName}*\n` +
+            `🚪 Покинул(а) школу: *${checkOutTime}*\n` +
+            `🕐 Прибыл(а): ${checkInTime}\n` +
+            `📅 ${date}\n\n_${school?.name ?? 'Администрация школы'}_`;
+
+          if (photoToSend) {
+            await this.wa.sendPhoto(effectiveWaPhone, photoToSend, waMsg).catch(
+              () => this.wa.sendText(effectiveWaPhone, waMsg).catch(() => {}),
+            );
           } else {
-            await this.wa.sendText(parent.whatsappPhone, waMsg);
+            await this.wa.sendText(effectiveWaPhone, waMsg).catch(() => {});
           }
-          this.logger.log(`WA check-out -> ${parent.whatsappPhone} (photo: ${!!capturePhoto})`);
+          await this.sendWaNotifButtons(effectiveWaPhone);
+          this.logger.log(`WA check-out → ${effectiveWaPhone} (photo: ${!!photoToSend})`);
         }
 
-        // ✅ SMS — faqat WhatsApp ulangan bo'lmagan ota-onalarga
-        if (parent.phone && canSend.sms && !parent.isWhatsappActive) {
+        // ✅ SMS
+        if (parent.phone && canSend.sms && !effectiveWaPhone) {
           const smsMessage = this.smsService.buildCheckOutMessage({
-            parentName: `${parent.firstName} ${parent.lastName}`,
-            studentName: `${person.firstName} ${person.lastName}`,
+            parentName,
+            studentName,
             checkInTime,
             checkOutTime,
           });
           await this.smsService.sendSms(parent.phone, smsMessage);
-          this.logger.log(`SMS check-out -> ${parent.phone}`);
+          this.logger.log(`SMS check-out → ${parent.phone}`);
         }
 
-        // ✅ Telegram — RUS TILI (foto bilan!)
+        // ✅ Telegram
         if (parent.isTelegramActive && parent.telegramChatId && canSend.telegram) {
-          const msg =
-            `Здравствуйте, уважаемый(ая) ${parent.firstName} ${parent.lastName}!\n\n` +
-            `Ваш ребёнок: ${person.firstName} ${person.lastName}\n` +
-            `Покинул школу: ${checkOutTime}\n` +
-            `Прибыл: ${checkInTime}\n` +
+          const tgMsg =
+            `Здравствуйте, ${parentName}!\n\n` +
+            `Ваш ребёнок: ${studentName}\n` +
+            `Покинул(а) школу: ${checkOutTime}\n` +
+            `Прибыл(а): ${checkInTime}\n` +
             `Дата: ${date}\n\nАдминистрация школы.`;
-
           if (capturePhoto) {
-            await this.telegramService.sendPhotoFromBase64(parent.telegramChatId, capturePhoto, msg);
+            await this.telegramService.sendPhotoFromBase64(parent.telegramChatId, capturePhoto, tgMsg);
           } else {
-            await this.telegramService.sendMessage(parent.telegramChatId, msg);
+            await this.telegramService.sendMessage(parent.telegramChatId, tgMsg);
           }
-          this.logger.log(`TG check-out -> ${parent.telegramChatId} (photo: ${!!capturePhoto})`);
+          this.logger.log(`TG check-out → ${parent.telegramChatId}`);
         }
       } catch (error: any) {
         this.logger.error(`Check-out notif error (parent ${parent.id}): ${error?.message}`);
@@ -590,33 +638,48 @@ export class AttendanceService {
   private async sendAbsentNotification(params: { person: PersonResolved; totalLateMinutes: number }) {
     const { person, totalLateMinutes } = params;
 
-    if (person.type === 'STUDENT' && !person.photo) {
-      this.logger.log(`⛔ Absent notif skipped (no photo): student=${person.id}`);
-      return;
-    }
-
     const canSend = await this.canSendNotification(person);
-
+    const school = (person as any).school;
+    const studentName = `${person.firstName} ${person.lastName}`;
     const totalHours = Math.floor(totalLateMinutes / 60);
     const totalMins = totalLateMinutes % 60;
 
     for (const parent of person.parents || []) {
       try {
+        const parentName = `${parent.firstName || ''} ${parent.lastName || ''}`.trim();
+        const effectiveWaPhone = parent.whatsappPhone || parent.phone;
         const message =
-          `Уважаемый(ая) ${parent.firstName} ${parent.lastName}!\n\n` +
-          `Ваш ребёнок: ${person.firstName} ${person.lastName}\n` +
+          `Уважаемый(ая) ${parentName}!\n\n` +
+          `Ваш ребёнок: ${studentName}\n` +
           `Общее опоздание за неделю: ${totalHours} ч ${totalMins} мин\n` +
           `Это засчитывается как 1 день пропуска.\n\n` +
           `Администрация школы.`;
 
-        if (parent.phone && canSend.sms && !parent.isWhatsappActive) {
-          await this.smsService.sendSms(parent.phone, message);
-          this.logger.log(`📱 Absent SMS → ${parent.phone}`);
+        // ✅ WhatsApp
+        if (effectiveWaPhone) {
+          await this.sendWaWelcomeIfNeeded(effectiveWaPhone, parent, person, school);
+          const waMsg =
+            `*ПРОПУСК ЗАНЯТИЙ* ❌\n\n` +
+            `Здравствуйте, *${parentName}*!\n\n` +
+            `🎒 *${studentName}* не явился(ась) в школу сегодня.\n` +
+            `⏱ Накоплено опозданий за неделю: *${totalHours}ч ${totalMins}мин*\n` +
+            `_(засчитывается как 1 день пропуска)_\n\n` +
+            `_${school?.name ?? 'Администрация школы'}_`;
+          await this.wa.sendText(effectiveWaPhone, waMsg).catch(() => {});
+          await this.sendWaNotifButtons(effectiveWaPhone);
+          this.logger.log(`WA absent → ${effectiveWaPhone}`);
         }
 
+        // ✅ SMS
+        if (parent.phone && canSend.sms && !effectiveWaPhone) {
+          await this.smsService.sendSms(parent.phone, message);
+          this.logger.log(`SMS absent → ${parent.phone}`);
+        }
+
+        // ✅ Telegram
         if (parent.isTelegramActive && parent.telegramChatId && canSend.telegram) {
           await this.telegramService.sendMessage(parent.telegramChatId, message);
-          this.logger.log(`📱 Absent Telegram → ${parent.telegramChatId}`);
+          this.logger.log(`TG absent → ${parent.telegramChatId}`);
         }
       } catch (error: any) {
         this.logger.error(`Absent notification error (parent ${parent.id}):`, error?.message || error);
