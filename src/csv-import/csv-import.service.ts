@@ -41,6 +41,32 @@ export class CsvImportService {
     return s || null;
   }
 
+  /**
+   * Parses class name in any of these formats:
+   *   "9-А"  "9А"  "9а"  "9 А"  "9А(12)"  "9а(12)"  "9-А(12)"
+   * Returns { grade, section } where section is uppercase, e.g. "А" or "А(12)".
+   * Throws if format is invalid.
+   */
+  private parseClassStr(raw: string): { grade: number; section: string } {
+    const is12year = /\(12\)/i.test(raw);
+    const clean = raw.replace(/\(12\)/gi, '').trim();
+
+    // Match: digits, then optional separator (- or space), then Cyrillic/Latin letters
+    const m = clean.match(/^(\d+)[-\s]*([А-Яа-яA-Za-z]+)$/);
+    if (!m) {
+      throw new Error(`Неверный формат класса: "${raw}" (пример: 9-А или 9А(12))`);
+    }
+
+    const grade = parseInt(m[1], 10);
+    if (!Number.isFinite(grade) || grade <= 0) {
+      throw new Error(`Неверный номер класса: "${raw}"`);
+    }
+
+    const sectionLetter = m[2].toUpperCase();
+    const section = is12year ? `${sectionLetter}(12)` : sectionLetter;
+    return { grade, section };
+  }
+
   private pick(row: any, keys: string[]) {
     // Build lowercase-keyed copy for case-insensitive lookup (e.g. "класс" == "Класс")
     const lowerRow: Record<string, any> = {};
@@ -208,16 +234,8 @@ export class CsvImportService {
           throw new Error('Обязательные поля отсутствуют: Класс, Имя, Фамилия');
         }
 
-        // "9-A" or "1-А-2" (second shift) format
-        const dashIdx = classSection.indexOf('-');
-        const gradeStr = dashIdx >= 0 ? classSection.slice(0, dashIdx) : classSection;
-        const sectionRaw = dashIdx >= 0 ? classSection.slice(dashIdx + 1) : '';
-        const grade = parseInt(gradeStr.trim(), 10);
-        const section = sectionRaw.trim();
-
-        if (!Number.isFinite(grade) || grade <= 0 || !section) {
-          throw new Error(`Неверный формат класса: "${classSection}" (пример: 9-А)`);
-        }
+        // Supports all formats: "9-А", "9А", "9а(12)", "2А(12)", "5 Б", "10-А"
+        const { grade, section } = this.parseClassStr(classSection);
 
         // class find/create
         let classRecord = await this.prisma.class.findFirst({

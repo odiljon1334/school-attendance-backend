@@ -108,6 +108,13 @@ export class StudentsController {
     return this.studentsService.update(id, updateStudentDto);
   }
 
+  @Delete('school/:schoolId/all')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  removeAllBySchool(@Param('schoolId') schoolId: string) {
+    return this.studentsService.removeAllBySchool(schoolId);
+  }
+
   @Delete(':id')
   @Roles(
     UserRole.SUPER_ADMIN,

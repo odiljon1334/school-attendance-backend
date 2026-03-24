@@ -382,6 +382,58 @@ export class StudentsService {
     return { message: 'Student deleted successfully' };
   }
 
+  async removeAllBySchool(schoolId: string) {
+    // Get all student IDs for the school
+    const students = await this.prisma.student.findMany({
+      where: { schoolId },
+      select: { id: true },
+    });
+
+    if (students.length === 0) {
+      return { message: 'No students found for this school', deleted: 0 };
+    }
+
+    const studentIds = students.map((s) => s.id);
+
+    // Delete all related records in bulk
+    await this.prisma.studentParent.deleteMany({ where: { studentId: { in: studentIds } } });
+    await this.prisma.attendance.deleteMany({ where: { studentId: { in: studentIds } } });
+    await this.prisma.payment.deleteMany({ where: { studentId: { in: studentIds } } });
+
+    // Delete orphaned parents (parents with no remaining student links)
+    const orphanedParents = await this.prisma.parent.findMany({
+      where: {
+        students: { none: {} },
+      },
+      select: { id: true },
+    });
+    if (orphanedParents.length) {
+      await this.prisma.parent.deleteMany({
+        where: { id: { in: orphanedParents.map((p) => p.id) } },
+      });
+    }
+
+    // Delete all students
+    const { count } = await this.prisma.student.deleteMany({ where: { schoolId } });
+
+    // Delete empty classes for the school
+    await this.prisma.class.deleteMany({
+      where: { schoolId, students: { none: {} } },
+    });
+
+    await this.redis.deleteCachePattern(`classes:all:${schoolId}:*`);
+
+    void this.auditLog.log({
+      action: 'STUDENT_BULK_DELETE',
+      entity: 'Student',
+      entityId: schoolId,
+      schoolId,
+      details: { deleted: count, reason: 'Bulk delete by school admin' },
+    });
+
+    return { message: `Deleted ${count} students and their related data`, deleted: count };
+  }
+
   async getAttendanceStats(studentId: string, startDate?: Date, endDate?: Date) {
     const where: any = { studentId };
 
