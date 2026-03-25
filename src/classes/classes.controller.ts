@@ -10,6 +10,8 @@ import {
   HttpCode,
   HttpStatus,
   Query,
+  Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ClassesService } from './classes.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
@@ -78,8 +80,12 @@ export class ClassesController {
     UserRole.SCHOOL_ADMIN,
   )
   @HttpCode(HttpStatus.OK)
-  remove(@Param('id') id: string, @Query('force') force?: string) {
-    return this.classesService.remove(id, force === 'true');
+  remove(@Param('id') id: string, @Query('force') force: string, @Req() req: any) {
+    const isForce = force === 'true';
+    if (isForce && req.user?.role !== UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException('Only SUPER_ADMIN can force delete a class with students');
+    }
+    return this.classesService.remove(id, isForce);
   }
 
   // POST /classes/promote-year  — yangi o'quv yiliga o'tish

@@ -10,6 +10,7 @@ import {
   HttpCode,
   HttpStatus,
   Query,
+  ForbiddenException,
 } from '@nestjs/common';
 import { SchoolsService } from './schools.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
@@ -77,6 +78,18 @@ export class SchoolsController {
   @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN, UserRole.SCHOOL_ADMIN)
   update(@Param('id') id: string, @Body() updateSchoolDto: UpdateSchoolDto) {
     return this.schoolsService.update(id, updateSchoolDto);
+  }
+
+  // ✅ Faqat SUPER_ADMIN: login va parol almashtirish
+  @Patch(':id/credentials')
+  @Roles(UserRole.SUPER_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  updateCredentials(
+    @Param('id') id: string,
+    @Body('username') username: string,
+    @Body('password') password: string,
+  ) {
+    return this.schoolsService.updateCredentials(id, username, password);
   }
 
   @Delete(':id')

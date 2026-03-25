@@ -179,6 +179,24 @@ export class SchoolsService {
     return schoolWithoutPassword;
   }
 
+  // ✅ Faqat SUPER_ADMIN uchun: login va parolni almashtirish
+  async updateCredentials(id: string, username: string, newPassword: string) {
+    const existing = await this.prisma.school.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException(`School ${id} not found`);
+
+    if (username && username !== existing.username) {
+      const taken = await this.prisma.school.findUnique({ where: { username } });
+      if (taken) throw new ConflictException(`Username "${username}" already exists`);
+    }
+
+    const dataToUpdate: any = {};
+    if (username) dataToUpdate.username = username;
+    if (newPassword) dataToUpdate.password = await bcrypt.hash(newPassword, 10);
+
+    await this.prisma.school.update({ where: { id }, data: dataToUpdate });
+    return { success: true, message: 'Credentials updated successfully' };
+  }
+
   async remove(id: string) {
     // Check if school exists
     const school = await this.prisma.school.findUnique({
