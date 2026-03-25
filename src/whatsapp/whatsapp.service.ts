@@ -175,15 +175,14 @@ export class WhatsappService {
 
       await this.http.post('/messages/image', {
         to: chatId,
-        image: {
-          link: imageLink,
-          caption: caption ?? '',
-        },
+        image: { link: imageLink },
+        caption: caption ?? '',
       });
 
       this.logger.log(`📸 WA photo sent → ${chatId}`);
     } catch (err: any) {
-      this.logger.error(`sendPhoto → ${chatId}: ${err?.message}`);
+      const detail = err?.response?.data ?? err?.message;
+      this.logger.error(`sendPhoto → ${chatId}: ${JSON.stringify(detail)}`);
       // Foto yubora olmasa, matnni fallback qilib yuboramiz
       if (caption) {
         try {
