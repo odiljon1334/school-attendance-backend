@@ -57,6 +57,19 @@ export class WhatsappBotService {
         // Только входящие, игнорируем собственные сообщения бота
         if (msg.from_me) continue;
 
+        // ── Deduplication: bir xabar ikki marta ishlanmasligi uchun ──
+        const msgId: string | undefined = msg.id;
+        if (msgId) {
+          const dedupKey = `wa:msg:${msgId}`;
+          const already = await this.redis.get(dedupKey);
+          if (already) {
+            this.logger.warn(`⚠️ Duplicate WA message ignored: ${msgId}`);
+            continue;
+          }
+          // 5 daqiqa TTL — Whapi retry oynasidan katta
+          await this.redis.set(dedupKey, '1', 300);
+        }
+
         const chatId: string = msg.chat_id;          // "996XXXXXXX@s.whatsapp.net"
         const phone = this.wa.extractPhone(chatId);  // "+996XXXXXXX"
 
