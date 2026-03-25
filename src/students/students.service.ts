@@ -338,6 +338,71 @@ export class StudentsService {
     });
   }
 
+  async transferStudent(
+    id: string,
+    classId: string,
+    schoolId?: string,
+  ) {
+    const student = await this.prisma.student.findUnique({
+      where: { id },
+      select: { id: true, schoolId: true, classId: true, firstName: true, lastName: true },
+    });
+    if (!student) throw new NotFoundException(`Student not found`);
+
+    // Validate target class exists
+    const targetClass = await this.prisma.class.findUnique({
+      where: { id: classId },
+      select: { id: true, schoolId: true, grade: true, section: true },
+    });
+    if (!targetClass) throw new NotFoundException(`Target class not found`);
+
+    // Determine target school
+    const targetSchoolId = schoolId ?? student.schoolId;
+
+    // Class must belong to target school
+    if (targetClass.schoolId !== targetSchoolId) {
+      throw new BadRequestException('Class does not belong to the target school');
+    }
+
+    const oldSchoolId = student.schoolId;
+    const oldClassId = student.classId;
+
+    const updated = await this.prisma.student.update({
+      where: { id },
+      data: {
+        classId,
+        ...(schoolId ? { schoolId } : {}),
+      },
+      include: {
+        class: true,
+        school: true,
+        parents: { include: { parent: true } },
+      },
+    });
+
+    // Clear Redis caches for affected schools
+    await this.redis.deleteCachePattern(`classes:all:${oldSchoolId}:*`);
+    if (schoolId && schoolId !== oldSchoolId) {
+      await this.redis.deleteCachePattern(`classes:all:${targetSchoolId}:*`);
+    }
+
+    void this.auditLog.log({
+      action: 'STUDENT_TRANSFER',
+      entity: 'Student',
+      entityId: id,
+      schoolId: targetSchoolId,
+      details: {
+        name: `${student.firstName} ${student.lastName}`,
+        fromClassId: oldClassId,
+        toClassId: classId,
+        fromSchoolId: oldSchoolId,
+        toSchoolId: targetSchoolId,
+      },
+    });
+
+    return updated;
+  }
+
   async remove(id: string) {
     const student = await this.prisma.student.findUnique({
       where: { id },

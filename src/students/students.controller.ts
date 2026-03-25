@@ -96,6 +96,20 @@ export class StudentsController {
     );
   }
 
+  @Patch(':id/transfer')
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.DISTRICT_ADMIN,
+    UserRole.SCHOOL_ADMIN,
+    UserRole.DIRECTOR,
+  )
+  transfer(
+    @Param('id') id: string,
+    @Body() dto: { classId: string; schoolId?: string },
+  ) {
+    return this.studentsService.transferStudent(id, dto.classId, dto.schoolId);
+  }
+
   @Patch(':id')
   @Roles(
     UserRole.SUPER_ADMIN,
