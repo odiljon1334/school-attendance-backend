@@ -523,7 +523,7 @@ export class AttendanceService {
         }
 
         // ✅ SMS — WhatsApp yo'q bo'lgan ota-onalarga
-        if (parent.phone && canSend.sms && !effectiveWaPhone) {
+        if (parent.phone && canSend.sms && !parent.isWhatsappActive) {
           const smsMessage = this.smsService.buildCheckInMessage({
             parentName,
             studentName,
@@ -600,7 +600,7 @@ export class AttendanceService {
         }
 
         // ✅ SMS
-        if (parent.phone && canSend.sms && !effectiveWaPhone) {
+        if (parent.phone && canSend.sms && !parent.isWhatsappActive) {
           const smsMessage = this.smsService.buildCheckOutMessage({
             parentName,
             studentName,
@@ -671,7 +671,7 @@ export class AttendanceService {
         }
 
         // ✅ SMS
-        if (parent.phone && canSend.sms && !effectiveWaPhone) {
+        if (parent.phone && canSend.sms && !parent.isWhatsappActive) {
           await this.smsService.sendSms(parent.phone, message);
           this.logger.log(`SMS absent → ${parent.phone}`);
         }

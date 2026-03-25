@@ -49,7 +49,7 @@ export class SmsService {
     if (isFirst) {
       const botPhone = this.configService.get<string>('WHATSAPP_BOT_PHONE', '');
       if (botPhone) {
-        message += `\n\nWhatsApp орқали хабар олиш учун:\nhttps://wa.me/${botPhone}?text=Start`;
+        message += `\n\nДля получения уведомлений через WhatsApp:\nhttps://wa.me/${botPhone}?text=Start`;
       }
     }
 
