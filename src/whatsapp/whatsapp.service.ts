@@ -175,7 +175,7 @@ export class WhatsappService {
 
       await this.http.post('/messages/image', {
         to: chatId,
-        image: { link: imageLink },
+        media: imageLink,
         caption: caption ?? '',
       });
 
