@@ -130,6 +130,70 @@ export class DistrictsService {
     return { message: 'District deleted successfully' };
   }
 
+  // Bulk: barcha districtlar statistikasi — 2 ta DB query
+  async getWithStats() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+
+    const districts = await this.prisma.district.findMany({
+      select: {
+        id: true, name: true, code: true, region: true,
+        _count: { select: { schools: true } },
+        schools: {
+          select: {
+            id: true,
+            _count: { select: { students: true, teachers: true, classes: true } },
+          },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    if (!districts.length) return [];
+
+    const schoolIds = districts.flatMap((d) => d.schools.map((s) => s.id));
+
+    const attendanceRecords = await this.prisma.attendance.findMany({
+      where: {
+        schoolId: { in: schoolIds },
+        date: { gte: today, lt: tomorrow },
+        studentId: { not: null },
+        status: { in: ['PRESENT', 'LATE'] },
+      },
+      select: { schoolId: true },
+    });
+
+    // schoolId → districtId map
+    const schoolToDistrict = new Map<string, string>();
+    for (const d of districts)
+      for (const s of d.schools) schoolToDistrict.set(s.id, d.id);
+
+    const presentByDistrict = new Map<string, number>();
+    for (const a of attendanceRecords) {
+      const distId = schoolToDistrict.get(a.schoolId);
+      if (distId) presentByDistrict.set(distId, (presentByDistrict.get(distId) ?? 0) + 1);
+    }
+
+    return districts.map((d) => {
+      const totalStudents = d.schools.reduce((s, sc) => s + sc._count.students, 0);
+      const present = presentByDistrict.get(d.id) ?? 0;
+      return {
+        id: d.id, name: d.name, code: d.code, region: d.region,
+        counts: {
+          totalSchools: d._count.schools,
+          totalStudents,
+          totalTeachers: d.schools.reduce((s, sc) => s + sc._count.teachers, 0),
+          totalClasses:  d.schools.reduce((s, sc) => s + sc._count.classes,  0),
+        },
+        todayAttendance: {
+          present, total: totalStudents,
+          rate: totalStudents > 0 ? ((present / totalStudents) * 100).toFixed(1) : '0',
+        },
+      };
+    });
+  }
+
   // Get district statistics
   async getStatistics(id: string) {
     const district = await this.prisma.district.findUnique({

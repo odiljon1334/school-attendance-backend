@@ -47,9 +47,11 @@ export class SmsService {
     // WhatsApp link qo'shish (birinchi SMS da)
     const isFirst = await this.redis.isFirstSms(phoneNumber);
     if (isFirst) {
-      const botPhone = this.configService.get<string>('WHATSAPP_BOT_PHONE', '');
-      if (botPhone) {
-        message += `\n\nДля получения уведомлений через WhatsApp:\nhttps://wa.me/${botPhone}?text=Start`;
+      const rawPhone = this.configService.get<string>('WHATSAPP_BOT_PHONE', '');
+      if (rawPhone) {
+        const botPhone = rawPhone.replace(/\D/g, '').replace(/^0+/, '');
+        const fullPhone = botPhone.startsWith('996') ? botPhone : `996${botPhone}`;
+        message += `\n\nДля получения уведомлений через WhatsApp:\nhttps://wa.me/${fullPhone}?text=Start`;
       }
     }
 

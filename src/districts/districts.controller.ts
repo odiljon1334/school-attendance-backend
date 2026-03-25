@@ -35,6 +35,12 @@ export class DistrictsController {
     return this.districtsService.findAll();
   }
 
+  @Get('with-stats')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN)
+  getWithStats() {
+    return this.districtsService.getWithStats();
+  }
+
   @Get(':id')
   @Roles(UserRole.SUPER_ADMIN, UserRole.DISTRICT_ADMIN)
   findOne(@Param('id') id: string) {
