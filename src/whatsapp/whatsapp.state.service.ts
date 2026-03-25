@@ -7,7 +7,6 @@ import { RedisService } from '../redis/redis.service';
 export type WaState =
   | 'START'
   | 'WAITING_PHONE'
-  | 'WAITING_OTP'          // OTP tasdiqlash kutilmoqda
   | 'SELECT_CHILD'
   | 'SELECT_PLAN'
   | 'CONFIRM_PAYMENT'
@@ -109,7 +108,6 @@ export class WhatsappStateService {
     return !!(
       session?.parentId &&
       session.state !== 'WAITING_PHONE' &&
-      session.state !== 'WAITING_OTP' &&
       session.state !== 'START'
     );
   }

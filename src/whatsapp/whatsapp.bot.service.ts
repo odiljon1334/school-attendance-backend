@@ -4,7 +4,6 @@ import { WhatsappService } from './whatsapp.service';
 import { WhatsappStateService, WaSession, WaChild } from './whatsapp.state.service';
 import { FreedomPayService } from 'src/payments/freedom-pay.service';
 import { ConfigService } from '@nestjs/config';
-import { SmsService } from '../notifications/sms.service';
 import { RedisService } from '../redis/redis.service';
 
 // ─────────────────────────────────────────────────────────
@@ -44,7 +43,6 @@ export class WhatsappBotService {
     private wa: WhatsappService,
     private balanceKg: FreedomPayService,
     private configService: ConfigService,
-    private sms: SmsService,
     private redis: RedisService,
   ) {}
 
@@ -97,7 +95,7 @@ export class WhatsappBotService {
 
     if (['отмена', 'cancel', '❌', 'назад', 'bekor', 'menyu', 'menu', 'меню'].includes(lower)) {
       // Agar ro'yxatdan o'tmagan bo'lsa yoki OTP/telefon kutilayotgan bo'lsa — boshidan boshlash
-      if (!session?.parentId || session.state === 'WAITING_OTP' || session.state === 'WAITING_PHONE') {
+      if (!session?.parentId || session.state === 'WAITING_PHONE') {
         await this.state.reset(phone);
         return this.startFlow(phone);
       }
@@ -124,9 +122,6 @@ export class WhatsappBotService {
 
       case 'CONFIRM_PAYMENT':
         return this.handlePaymentConfirm(phone, text, session, rawMsg);
-
-      case 'WAITING_OTP':
-        return this.handleOtpInput(phone, text, session);
 
       default:
         return this.startFlow(phone);
@@ -219,91 +214,7 @@ export class WhatsappBotService {
         return;
       }
 
-      // ── OTP generatsiya ──
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
-      await this.redis.setCache(`otp:wa:${phone}`, { code, parentPhone: normalized }, 300);
-
-      // ── SMS yuborish ──
-      const smsSent = await this.sms.sendSms(
-        normalized,
-        `Ваш код подтверждения: ${code}\nДействителен 5 минут. Не сообщайте никому.`,
-        { type: 'OTP', limitPerMin: 5 },
-      );
-
-      // ── Session yangilash ──
-      await this.state.update(phone, { state: 'WAITING_OTP', pendingPhone: normalized });
-
-      if (smsSent) {
-        await this.wa.sendText(
-          phone,
-          `📲 На номер *${normalized}* отправлен SMS-код.\n\n` +
-            `Введите 6-значный код для подтверждения:\n\n` +
-            `⚠️ Код действителен 5 минут.\n` +
-            `Для отмены напишите "отмена".`,
-        );
-      } else {
-        // SMS yuborib bo'lmadi
-        await this.wa.sendText(
-          phone,
-          `⚠️ Не удалось отправить SMS на номер ${normalized}.\n\n` +
-            `Пожалуйста, попробуйте ещё раз или обратитесь в администрацию школы.`,
-        );
-        await this.state.update(phone, { state: 'WAITING_PHONE', pendingPhone: undefined });
-      }
-    } catch (err: any) {
-      this.logger.error(`handlePhoneInput error: ${err?.message}`);
-      await this.wa.sendText(phone, `❌ Произошла ошибка. Пожалуйста, попробуйте ещё раз.`);
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────
-  // ШАГ 3: OTP TEKSHIRISH — WhatsApp bog'lash
-  // ─────────────────────────────────────────────────────────
-  private async handleOtpInput(
-    phone: string,
-    text: string,
-    session: WaSession,
-  ): Promise<void> {
-    const code = text.trim();
-
-    // 6 xonali raqam bo'lishi shart
-    if (!/^\d{6}$/.test(code)) {
-      await this.wa.sendText(
-        phone,
-        `❌ Введите 6-значный код из SMS.\n\nДля отмены напишите "отмена".`,
-      );
-      return;
-    }
-
-    try {
-      const otpData = (await this.redis.getCache(`otp:wa:${phone}`)) as {
-        code: string;
-        parentPhone: string;
-      } | null;
-
-      // OTP muddati o'tgan
-      if (!otpData) {
-        await this.state.update(phone, { state: 'WAITING_PHONE', pendingPhone: undefined });
-        await this.wa.sendText(
-          phone,
-          `⏰ Время действия кода истекло.\n\n` +
-            `Введите ваш номер телефона снова:`,
-        );
-        return;
-      }
-
-      // Noto'g'ri kod
-      if (otpData.code !== code) {
-        await this.wa.sendText(
-          phone,
-          `❌ Неверный код. Проверьте SMS и попробуйте ещё раз.\n\n` +
-            `Для отмены напишите "отмена".`,
-        );
-        return;
-      }
-
-      // ── Kod to'g'ri: WhatsApp ga bog'lash ──
-      const normalized = session.pendingPhone ?? otpData.parentPhone;
+      // ── OTP yo'q: to'g'ridan-to'g'ri WhatsApp ga bog'laymiz ──
 
       // Eski bog'liqliklarni tozalaymiz
       await this.prisma.parent.updateMany({
@@ -325,7 +236,6 @@ export class WhatsappBotService {
       });
 
       if (!parent) {
-        await this.state.update(phone, { state: 'WAITING_PHONE', pendingPhone: undefined });
         await this.wa.sendText(phone, `❌ Родитель не найден. Введите номер телефона снова.`);
         return;
       }
@@ -341,13 +251,7 @@ export class WhatsappBotService {
       try {
         await this.prisma.whatsappSubscription.upsert({
           where: { phone },
-          update: {
-            isActive: true,
-            lastMessageAt: new Date(),
-            parentId: parent.id,
-            schoolId: firstSchoolId,
-            name: parent.firstName ?? null,
-          },
+          update: { isActive: true, lastMessageAt: new Date(), parentId: parent.id, schoolId: firstSchoolId, name: parent.firstName ?? null },
           create: {
             phone,
             chatId: `${phone.replace(/[^\d]/g, '')}@s.whatsapp.net`,
@@ -362,17 +266,14 @@ export class WhatsappBotService {
         this.logger.warn(`WhatsappSubscription upsert failed: ${e?.message}`);
       }
 
-      // OTP ni o'chiramiz
-      await this.redis.del(`otp:wa:${phone}`);
-
-      // Bolalar ro'yxatini tuzamiz
-      const children = parent.students.map((sp) => {
-        const s = sp.student;
+      // Children list
+      const children: WaChild[] = (parent.students ?? []).map((ps) => {
+        const s = ps.student;
         return {
           studentId: s.id,
           name: `${s.firstName} ${s.lastName}`.trim(),
           grade: s.class ? `${s.class.grade}-${s.class.section}` : '—',
-          plan: s.billingPlan,
+          plan: s.billingPlan ?? 'MONTHLY',
           amount: 0,
           billingPaidUntil: s.billingPaidUntil ? s.billingPaidUntil.toISOString() : null,
         };
@@ -380,8 +281,8 @@ export class WhatsappBotService {
 
       await this.state.update(phone, {
         state: 'VERIFIED',
-        phone: normalized,
         parentId: parent.id,
+        phone: normalized,
         pendingPhone: undefined,
         children,
       });
@@ -389,7 +290,7 @@ export class WhatsappBotService {
       const firstName = parent.firstName ?? 'Родитель';
       await this.wa.sendText(
         phone,
-        `✅ *Телефон подтверждён!*\n\n` +
+        `✅ *Вы успешно подключены!*\n\n` +
           `👤 ${firstName}\n` +
           `👨‍👩‍👧 Количество детей: ${children.length}\n\n` +
           `Теперь вы будете получать уведомления автоматически ✅`,
@@ -397,7 +298,7 @@ export class WhatsappBotService {
 
       return this.showMainMenu(phone);
     } catch (err: any) {
-      this.logger.error(`handleOtpInput error: ${err?.message}`);
+      this.logger.error(`handlePhoneInput error: ${err?.message}`);
       await this.wa.sendText(phone, `❌ Произошла ошибка. Пожалуйста, попробуйте ещё раз.`);
     }
   }
