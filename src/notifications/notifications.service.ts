@@ -845,6 +845,13 @@ if (!schoolId && user?.role !== 'SUPER_ADMIN') {
     meta: { plan: BillingPlan; periodKey: string },
   ) {
     if (!paymentIds?.length) return { total: 0, totalSent: 0, failed: 0, skipped: 0 };
+
+    // ─── Billing xabarnomalar o'chirilgan (BILLING_NOTIFY_ENABLED=true bo'lsagina ishlaydi) ───
+    const notifyEnabled = (process.env.BILLING_NOTIFY_ENABLED ?? 'false').toLowerCase() === 'true';
+    if (!notifyEnabled) {
+      this.logger.warn(`⏸ Billing notifications disabled (BILLING_NOTIFY_ENABLED=false). Skipping ${paymentIds.length} payments.`);
+      return { total: 0, totalSent: 0, failed: 0, skipped: paymentIds.length };
+    }
   
     // =========================
     // Production config
