@@ -18,8 +18,8 @@ export class CreateParentDto {
   firstName: string;
 
   @IsString()
-  @IsNotEmpty()
-  lastName: string;
+  @IsOptional()
+  lastName?: string;
 
   @IsString()
   @IsNotEmpty()
