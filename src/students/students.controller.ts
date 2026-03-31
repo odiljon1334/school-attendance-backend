@@ -53,9 +53,8 @@ export class StudentsController {
   ) {
     const user = (req as any).user;
     const restrictedRoles = [UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR, UserRole.TEACHER];
-    if (user?.role && restrictedRoles.includes(user.role)) {
-      schoolId = user.schoolId;
-    }
+    const isRestricted = (user?.role && restrictedRoles.includes(user.role)) || (!user?.role && user?.schoolId);
+    if (isRestricted) schoolId = user.schoolId;
     return this.studentsService.findAll(schoolId, classId);
   }
 
