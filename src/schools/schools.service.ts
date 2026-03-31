@@ -45,10 +45,12 @@ export class SchoolsService {
     return schoolWithoutPassword;
   }
 
-  async findAll(districtId?: string) {
+  async findAll(districtId?: string, schoolId?: string) {
     const where: any = {};
 
-    if (districtId) {
+    if (schoolId) {
+      where.id = schoolId;
+    } else if (districtId) {
       where.districtId = districtId;
     }
 
@@ -231,14 +233,16 @@ export class SchoolsService {
   }
 
   // Get school statistics
-  async getBulkStatistics(districtId: string) {
+  async getBulkStatistics(districtId?: string, schoolId?: string) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
 
+    const where: any = schoolId ? { id: schoolId } : districtId ? { districtId } : {};
+
     // 1 DB query: all schools with counts
     const schools = await this.prisma.school.findMany({
-      where: { districtId },
+      where,
       select: {
         id: true,
         name: true,

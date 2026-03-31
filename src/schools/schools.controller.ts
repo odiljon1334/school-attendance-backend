@@ -11,7 +11,9 @@ import {
   HttpStatus,
   Query,
   ForbiddenException,
+  Req,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { SchoolsService } from './schools.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -37,7 +39,11 @@ export class SchoolsController {
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
   )
-  findAll(@Query('districtId') districtId?: string) {
+  findAll(@Req() req: Request, @Query('districtId') districtId?: string) {
+    const user = (req as any).user;
+    const restrictedRoles = [UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR, UserRole.TEACHER];
+    const isRestricted = (user?.role && restrictedRoles.includes(user.role)) || (!user?.role && user?.schoolId);
+    if (isRestricted) return this.schoolsService.findAll(undefined, user.schoolId);
     return this.schoolsService.findAll(districtId);
   }
 
@@ -48,7 +54,11 @@ export class SchoolsController {
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,
   )
-  getBulkStatistics(@Query('districtId') districtId: string) {
+  getBulkStatistics(@Req() req: Request, @Query('districtId') districtId: string) {
+    const user = (req as any).user;
+    const restrictedRoles = [UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR, UserRole.TEACHER];
+    const isRestricted = (user?.role && restrictedRoles.includes(user.role)) || (!user?.role && user?.schoolId);
+    if (isRestricted) return this.schoolsService.getBulkStatistics(undefined, user.schoolId);
     return this.schoolsService.getBulkStatistics(districtId);
   }
 
