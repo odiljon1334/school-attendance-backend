@@ -10,7 +10,9 @@ import {
   HttpCode,
   HttpStatus,
   Query,
+  Req,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { StudentsService } from './students.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -45,9 +47,15 @@ export class StudentsController {
     UserRole.TEACHER,
   )
   findAll(
+    @Req() req: Request,
     @Query('schoolId') schoolId?: string,
     @Query('classId') classId?: string,
   ) {
+    const user = (req as any).user;
+    const restrictedRoles = [UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR, UserRole.TEACHER];
+    if (user?.role && restrictedRoles.includes(user.role)) {
+      schoolId = user.schoolId;
+    }
     return this.studentsService.findAll(schoolId, classId);
   }
 

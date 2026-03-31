@@ -12,7 +12,9 @@ import {
   Query,
   Logger,
   BadRequestException,
+  Req,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { AttendanceService } from './attendance.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -156,12 +158,18 @@ export class AttendanceController {
     UserRole.TEACHER,
   )
   findAll(
+    @Req() req: Request,
     @Query('schoolId') schoolId?: string,
     @Query('date') date?: string,
     @Query('studentId') studentId?: string,
     @Query('teacherId') teacherId?: string,
     @Query('classId') classId?: string,
   ) {
+    const user = (req as any).user;
+    const restrictedRoles = [UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR, UserRole.TEACHER];
+    if (user?.role && restrictedRoles.includes(user.role)) {
+      schoolId = user.schoolId;
+    }
     return this.attendanceService.findAll(schoolId, date, studentId, teacherId, classId);
   }
 
