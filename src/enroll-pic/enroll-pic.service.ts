@@ -282,8 +282,26 @@ export class EnrollPicService {
     }
 
     // Normalize for terminal: auto-rotate (EXIF), resize 600x600, JPEG ~85%
-    await sharp(rawBuffer)
-      .rotate()                              // EXIF rotation fix (telefon rasmlari)
+    // 1) Metadata o'qiymiz — EXIF va o'lchamlarni bilib olamiz
+    const meta = await sharp(rawBuffer).metadata();
+
+    // 2) EXIF bor bo'lsa — .rotate() avtomatik tuzatadi
+    // EXIF yo'q + landscape (width > height) → face photo bo'lsa doim portrait bo'lishi kerak
+    //   shuning uchun 90° CW burish kerak (eng keng tarqalgan holat)
+    const isLandscape = (meta.width ?? 0) > (meta.height ?? 0);
+    const hasExif = !!meta.orientation;
+
+    let pipeline = sharp(rawBuffer);
+
+    if (hasExif) {
+      // EXIF bor → avtomatik to'g'ri buradi
+      pipeline = pipeline.rotate();
+    } else if (isLandscape) {
+      // EXIF yo'q + landscape → 90° CW
+      pipeline = pipeline.rotate(90);
+    }
+
+    await pipeline
       .resize(600, 600, {
         fit: 'cover',                        // kamera rasmi kabi square crop
         position: 'centre',
