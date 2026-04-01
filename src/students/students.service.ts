@@ -6,6 +6,7 @@ import { CreateStudentDto } from './dto/student.dto';
 import { UpdateStudentDto } from './dto/student.dto';
 import * as bcrypt from 'bcrypt';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { compressImage } from '../utils/image.utils';
 
 function pad(num: number, size: number) {
   return String(num).padStart(size, '0');
@@ -96,7 +97,11 @@ export class StudentsService {
       }
   
       // 2) ✅ enrollNumber ONLY if photo exists OR manual provided AND photo exists
-      const hasPhoto = !!(createStudentDto.photo && String(createStudentDto.photo).trim());
+      // Rasmni compress qilamiz (3-6MB → ~50-100KB)
+      const rawPhoto = createStudentDto.photo && String(createStudentDto.photo).trim()
+        ? await compressImage(createStudentDto.photo, { maxWidth: 400, maxHeight: 400, quality: 80 })
+        : null;
+      const hasPhoto = !!rawPhoto;
       let enrollNumber: string | null = null;
   
       if (hasPhoto) {
@@ -123,7 +128,7 @@ export class StudentsService {
           gender: createStudentDto.gender,
           phone: createStudentDto.phone ?? null,
           telegramId: createStudentDto.telegramId ?? null,
-          photo: hasPhoto ? createStudentDto.photo : null,
+          photo: rawPhoto,
           facePersonId: createStudentDto.facePersonId || null,
           enrollNumber,
           billingPlan: createStudentDto.billingPlan ?? undefined,
@@ -185,7 +190,7 @@ export class StudentsService {
     if (schoolId) where.schoolId = schoolId;
     if (classId) where.classId = classId;
 
-    return this.prisma.student.findMany({
+    const students = await this.prisma.student.findMany({
       where,
       include: {
         user: {
@@ -199,10 +204,17 @@ export class StudentsService {
         },
         school: true,
         class: true,
-        parents: { include: { parent: true } }
+        parents: { include: { parent: true } },
       },
       orderBy: { lastName: 'asc' },
     });
+
+    // ✅ photo base64 ni list da yubormaymiz — response hajmini drastik kamaytiradi
+    // Frontend uchun hasPhoto: boolean flag qo'shamiz
+    return students.map(({ photo, ...rest }) => ({
+      ...rest,
+      hasPhoto: !!photo,
+    }));
   }
 
   async findOne(id: string) {
@@ -245,11 +257,15 @@ export class StudentsService {
     const dateOfBirth = dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined;
   
     return this.prisma.$transaction(async (tx) => {
-      const incomingPhoto = dto.photo !== undefined 
-      ? this.cleanStr(dto.photo) 
-      : dto.faceImage !== undefined
-      ? this.cleanStr(dto.faceImage)
-      : undefined;
+      const rawIncoming = dto.photo !== undefined
+        ? this.cleanStr(dto.photo)
+        : dto.faceImage !== undefined
+        ? this.cleanStr(dto.faceImage)
+        : undefined;
+      // ✅ Rasmni compress qilamiz (3-6MB → ~50-100KB)
+      const incomingPhoto = rawIncoming
+        ? await compressImage(rawIncoming, { maxWidth: 400, maxHeight: 400, quality: 80 })
+        : rawIncoming;
       const photoWillBeSetNow =
         incomingPhoto !== undefined && incomingPhoto !== null && !existing.photo;
   

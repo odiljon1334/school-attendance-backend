@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PayrollService } from '../payroll/payroll.service';
 import { AttendanceService } from '../attendance/attendance.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { compressImage } from '../utils/image.utils';
 
 export type HikvisionWebhookEvent = {
   employeeNo: string;
@@ -97,7 +98,10 @@ export class HikvisionService {
     // Terminal vaqtini ishlatamiz (WiFi offline bo'lib, keyin ulanishda original vaqt saqlanadi)
     // Agar terminal vaqt yuborsa — shuni ishlatamiz; aks holda server vaqti
     const now = this.resolveEventTime(event.eventTime);
-    const capturePhoto = event.snapshotBytes ? event.snapshotBytes.toString('base64') : undefined;
+    // ✅ Rasmni compress qilamiz: Hikvision 3-6MB → ~50-100KB
+    const capturePhoto = event.snapshotBytes
+      ? await compressImage(event.snapshotBytes, { maxWidth: 400, maxHeight: 400, quality: 80 })
+      : undefined;
 
     const [student, teacher] = await Promise.all([
       this.prisma.student.findFirst({
