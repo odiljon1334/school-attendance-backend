@@ -69,6 +69,7 @@ services:
       PORT: 3001
       NODE_ENV: production
       TZ: Asia/Tashkent
+      NODE_OPTIONS: --max-old-space-size=512
     depends_on:
       postgres:
         condition: service_healthy
