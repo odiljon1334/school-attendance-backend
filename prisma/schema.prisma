@@ -175,7 +175,7 @@ model Student {
 
   photo        String?
   facePersonId String? @unique
-  enrollNumber String? @unique
+  enrollNumber String?
 
   importKey String? @unique
 
@@ -195,6 +195,7 @@ model Student {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([schoolId, enrollNumber])
   @@index([classId])
   @@index([billingPaidUntil])
   @@index([isSmsEnabled])
@@ -251,7 +252,7 @@ model Teacher {
 
   photo        String?
   facePersonId String? @unique
-  enrollNumber String? @unique
+  enrollNumber String?
 
   teacherClasses TeacherClass[]
 
@@ -268,6 +269,7 @@ model Teacher {
   updatedAt DateTime @updatedAt
 
   @@unique([telegramId])
+  @@unique([schoolId, enrollNumber])
   @@index([facePersonId])
   @@index([type])
 }

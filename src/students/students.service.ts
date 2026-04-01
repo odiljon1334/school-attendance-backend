@@ -43,15 +43,15 @@ export class StudentsService {
     return s.length ? s : null;
   }
 
-  private async ensureUniqueEnrollNumber(tx: any, enrollNumber: string, selfStudentId?: string) {
+  private async ensureUniqueEnrollNumber(tx: any, enrollNumber: string, schoolId: string, selfStudentId?: string) {
     const [studentDup, teacherDup] = await Promise.all([
-      tx.student.findFirst({ where: { enrollNumber }, select: { id: true } }),
-      tx.teacher.findFirst({ where: { enrollNumber }, select: { id: true } }),
+      tx.student.findFirst({ where: { enrollNumber, schoolId }, select: { id: true } }),
+      tx.teacher.findFirst({ where: { enrollNumber, schoolId }, select: { id: true } }),
     ]);
-  
-    if (teacherDup) throw new BadRequestException(`enrollNumber already exists: ${enrollNumber}`);
+
+    if (teacherDup) throw new BadRequestException(`enrollNumber already exists in this school: ${enrollNumber}`);
     if (studentDup && studentDup.id !== selfStudentId)
-      throw new BadRequestException(`enrollNumber already exists: ${enrollNumber}`);
+      throw new BadRequestException(`enrollNumber already exists in this school: ${enrollNumber}`);
   }
   
   private async linkParentSmsSingle(
@@ -104,7 +104,7 @@ export class StudentsService {
           ? createStudentDto.enrollNumber.trim()
           : await this.nextStudentEnrollNumber(tx as any, createStudentDto.schoolId);
   
-        await this.ensureUniqueEnrollNumber(tx, enrollNumber);
+        await this.ensureUniqueEnrollNumber(tx, enrollNumber, createStudentDto.schoolId);
       } else {
         // photo yo'q -> enrollNumber kerak emas
         enrollNumber = null;
@@ -261,7 +261,7 @@ export class StudentsService {
           ? manualEnroll
           : await this.nextStudentEnrollNumber(tx as any, existing.schoolId);
   
-        await this.ensureUniqueEnrollNumber(tx, candidate, id);
+        await this.ensureUniqueEnrollNumber(tx, candidate, existing.schoolId, id);
         enrollNumberToSet = candidate;
       }
   
