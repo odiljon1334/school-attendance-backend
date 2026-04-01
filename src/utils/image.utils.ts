@@ -28,6 +28,7 @@ export async function compressImage(
     }
 
     const compressed = await sharp(buffer)
+      .rotate()             // ✅ EXIF orientation auto-fix (yonboshlashni to'g'rilaydi)
       .resize(maxWidth, maxHeight, {
         fit: 'inside',        // Aspect ratio saqlanadi
         withoutEnlargement: true, // Kichik rasmlarni kattalashtirmaydi
