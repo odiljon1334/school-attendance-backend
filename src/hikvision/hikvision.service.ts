@@ -100,7 +100,7 @@ export class HikvisionService {
     const capturePhoto = event.snapshotBytes ? event.snapshotBytes.toString('base64') : undefined;
 
     const [student, teacher] = await Promise.all([
-      this.prisma.student.findUnique({
+      this.prisma.student.findFirst({
         where: { enrollNumber: employeeNo },
         select: { id: true, schoolId: true, photo: true },
       }),

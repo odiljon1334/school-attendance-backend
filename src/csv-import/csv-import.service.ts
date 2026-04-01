@@ -142,8 +142,8 @@ export class CsvImportService {
 
         // enrollNumber duplicate check (agar bo'lsa)
         if (enrollNumber) {
-        const existingEnroll = await this.prisma.teacher.findUnique({
-        where: { enrollNumber },
+        const existingEnroll = await this.prisma.teacher.findFirst({
+        where: { enrollNumber, schoolId },
       });
 
       if (existingEnroll) {
