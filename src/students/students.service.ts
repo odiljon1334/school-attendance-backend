@@ -209,11 +209,11 @@ export class StudentsService {
       orderBy: { lastName: 'asc' },
     });
 
-    // ✅ photo base64 ni list da yubormaymiz — response hajmini drastik kamaytiradi
-    // Frontend uchun hasPhoto: boolean flag qo'shamiz
-    return students.map(({ photo, ...rest }) => ({
-      ...rest,
-      hasPhoto: !!photo,
+    // ✅ photo ni qaytaramiz — rasmlar endi compress qilingan (15-50KB, oldin 3-6MB edi)
+    // hasPhoto flag ham qo'shamiz
+    return students.map((s) => ({
+      ...s,
+      hasPhoto: !!s.photo,
     }));
   }
 
