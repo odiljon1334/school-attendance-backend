@@ -11,8 +11,10 @@ import {
   HttpStatus,
   Query,
   Req,
+  Res,
+  NotFoundException,
 } from '@nestjs/common';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { StudentsService } from './students.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -56,6 +58,34 @@ export class StudentsController {
     const isRestricted = (user?.role && restrictedRoles.includes(user.role)) || (!user?.role && user?.schoolId);
     if (isRestricted) schoolId = user.schoolId;
     return this.studentsService.findAll(schoolId, classId);
+  }
+
+  // ✅ Dedicated photo endpoint — binary JPEG, browser cache 1 kun
+  // List API da base64 yubormaymiz, frontend bu endpoint orqali lazy load qiladi
+  @Get(':id/photo')
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.DISTRICT_ADMIN,
+    UserRole.SCHOOL_ADMIN,
+    UserRole.DIRECTOR,
+    UserRole.TEACHER,
+    UserRole.PARENT,
+  )
+  async getPhoto(@Param('id') id: string, @Res() res: Response) {
+    const student = await this.studentsService.getPhotoById(id);
+    if (!student?.photo) throw new NotFoundException('Photo not found');
+
+    const raw = student.photo.startsWith('data:')
+      ? student.photo.split(',')[1]
+      : student.photo;
+
+    const buffer = Buffer.from(raw, 'base64');
+    res.set({
+      'Content-Type': 'image/jpeg',
+      'Cache-Control': 'public, max-age=86400', // 1 kun browser cache
+      'ETag': `"${id}"`,
+    });
+    res.send(buffer);
   }
 
   @Get('photo-status')

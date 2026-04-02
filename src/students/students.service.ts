@@ -209,12 +209,20 @@ export class StudentsService {
       orderBy: { lastName: 'asc' },
     });
 
-    // ✅ photo ni qaytaramiz — rasmlar endi compress qilingan (15-50KB, oldin 3-6MB edi)
-    // hasPhoto flag ham qo'shamiz
-    return students.map((s) => ({
-      ...s,
-      hasPhoto: !!s.photo,
+    // ✅ photo ni list da YUKLAMAYMIZ — dedicated /students/:id/photo endpoint ishlatiladi
+    // Browser 1 kun cache qiladi → 100,000 ta rasm bo'lsa ham muammo yo'q
+    return students.map(({ photo, ...rest }) => ({
+      ...rest,
+      hasPhoto: !!photo,
     }));
+  }
+
+  // Faqat photo field uchun — dedicated endpoint ishlatadi
+  async getPhotoById(id: string) {
+    return this.prisma.student.findUnique({
+      where: { id },
+      select: { photo: true },
+    });
   }
 
   async findOne(id: string) {
