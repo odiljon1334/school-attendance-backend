@@ -109,6 +109,7 @@ model School {
 
   username String? @unique
   password String?
+  credentialsChangedAt DateTime? // Parol o'zgarganda eski tokenlar invalid bo'ladi
 
   classes          Class[]
   students         Student[]

@@ -193,7 +193,11 @@ export class SchoolsService {
 
     const dataToUpdate: any = {};
     if (username) dataToUpdate.username = username;
-    if (newPassword) dataToUpdate.password = await bcrypt.hash(newPassword, 10);
+    if (newPassword) {
+      dataToUpdate.password = await bcrypt.hash(newPassword, 10);
+      // ✅ Eski tokenlar bu vaqtdan oldin berilgan bo'lsa invalid hisoblanadi
+      dataToUpdate.credentialsChangedAt = new Date();
+    }
 
     await this.prisma.school.update({ where: { id }, data: dataToUpdate });
     return { success: true, message: 'Credentials updated successfully' };

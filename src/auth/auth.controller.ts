@@ -77,8 +77,9 @@ export class AuthController {
   @Post('school/login')
   @Throttle({ short: { ttl: 60000, limit: 5 } })
   @HttpCode(HttpStatus.OK)
-  async loginSchool(@Body() loginDto: LoginDto) {
-    return this.authService.loginSchool(loginDto);
+  async loginSchool(@Body() loginDto: LoginDto, @Request() req) {
+    const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+    return this.authService.loginSchool(loginDto, ip);
   }
 
   @Get('school/me')

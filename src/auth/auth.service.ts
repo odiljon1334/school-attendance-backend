@@ -140,7 +140,7 @@ export class AuthService {
   // ==========================================
   // ✅ NEW: SCHOOL LOGIN
   // ==========================================
-  async loginSchool(loginDto: LoginDto) {
+  async loginSchool(loginDto: LoginDto, ip?: string) {
     // Find school by username
     const school = await this.prisma.school.findUnique({
       where: { username: loginDto.username },
@@ -171,6 +171,16 @@ export class AuthService {
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid credentials');
     }
+
+    // ✅ School login ni AuditLog ga yozamiz
+    await this.auditLog.log({
+      action: 'LOGIN',
+      entity: 'School',
+      entityId: school.id,
+      schoolId: school.id,
+      details: { schoolName: school.name, username: school.username },
+      ip,
+    });
 
     // Generate token for School
     const token = this.generateSchoolToken(school);

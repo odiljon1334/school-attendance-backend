@@ -27,11 +27,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           name: true,
           code: true,
           username: true,
+          credentialsChangedAt: true,
         },
       });
 
       if (!school) {
         throw new UnauthorizedException('School not found');
+      }
+
+      // ✅ Parol o'zgargandan keyin berilgan eski tokenlarni rad etamiz
+      if (school.credentialsChangedAt) {
+        const tokenIssuedAt = payload.iat * 1000; // JWT iat soniyalarda
+        if (tokenIssuedAt < school.credentialsChangedAt.getTime()) {
+          throw new UnauthorizedException('Session expired. Please login again.');
+        }
       }
 
       return {
