@@ -196,7 +196,10 @@ model Student {
   updatedAt DateTime @updatedAt
 
   @@unique([schoolId, enrollNumber])
+  @@index([schoolId])                   // findAll(schoolId) uchun
+  @@index([schoolId, classId])          // findAll(schoolId, classId) uchun
   @@index([classId])
+  @@index([lastName])                   // orderBy lastName uchun
   @@index([billingPaidUntil])
   @@index([isSmsEnabled])
   @@index([smsPaidUntil])

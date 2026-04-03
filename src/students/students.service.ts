@@ -171,6 +171,7 @@ export class StudentsService {
       });
 
       await this.redis.deleteCachePattern(`classes:all:${createStudentDto.schoolId}:*`);
+      await this.redis.deleteCachePattern(`students:list:${createStudentDto.schoolId}:*`);
 
       void this.auditLog.log({
         action: 'STUDENT_CREATE',
@@ -185,36 +186,67 @@ export class StudentsService {
   }
 
   async findAll(schoolId?: string, classId?: string) {
-    const where: any = {};
+    // ✅ Redis cache — DB ga har safar urinmaymiz
+    const cacheKey = `students:list:${schoolId ?? 'all'}:${classId ?? 'all'}`;
+    const cached = await this.redis.getCache(cacheKey);
+    if (cached) return cached;
 
+    const where: any = {};
     if (schoolId) where.schoolId = schoolId;
     if (classId) where.classId = classId;
 
     const students = await this.prisma.student.findMany({
       where,
-      include: {
-        user: {
+      select: {
+        id: true,
+        schoolId: true,
+        classId: true,
+        firstName: true,
+        lastName: true,
+        middleName: true,
+        dateOfBirth: true,
+        gender: true,
+        phone: true,
+        enrollNumber: true,
+        billingPlan: true,
+        billingPaidUntil: true,
+        facePersonId: true,
+        telegramId: true,
+        createdAt: true,
+        updatedAt: true,
+        // ✅ photo YUKLAMAYMIZ — hasPhoto flag yetarli
+        photo: true,
+        // ✅ school YUKLAMAYMIZ — frontend allaqachon school ma'lumotini biladi
+        class: { select: { id: true, grade: true, section: true } },
+        parents: {
           select: {
-            id: true,
-            username: true,
-            email: true,
-            role: true,
-            status: true,
+            parentId: true,
+            relationship: true,
+            notifySms: true,
+            parent: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                phone: true,
+                isWhatsappActive: true,
+                isTelegramActive: true,
+              },
+            },
           },
         },
-        school: true,
-        class: true,
-        parents: { include: { parent: true } },
       },
       orderBy: { lastName: 'asc' },
     });
 
-    // ✅ photo ni list da YUKLAMAYMIZ — dedicated /students/:id/photo endpoint ishlatiladi
-    // Browser 1 kun cache qiladi → 100,000 ta rasm bo'lsa ham muammo yo'q
-    return students.map(({ photo, ...rest }) => ({
+    const result = students.map(({ photo, ...rest }) => ({
       ...rest,
       hasPhoto: !!photo,
     }));
+
+    // ✅ 2 daqiqa cache — create/update/delete da invalidate qilinadi
+    await this.redis.setCache(cacheKey, result, 120);
+    return result;
   }
 
   // Faqat photo field uchun — dedicated endpoint ishlatadi
@@ -406,8 +438,10 @@ export class StudentsService {
 
     // Clear Redis caches for affected schools
     await this.redis.deleteCachePattern(`classes:all:${oldSchoolId}:*`);
+    await this.redis.deleteCachePattern(`students:list:${oldSchoolId}:*`);
     if (schoolId && schoolId !== oldSchoolId) {
       await this.redis.deleteCachePattern(`classes:all:${targetSchoolId}:*`);
+      await this.redis.deleteCachePattern(`students:list:${targetSchoolId}:*`);
     }
 
     void this.auditLog.log({
@@ -457,8 +491,9 @@ export class StudentsService {
       }
     }
 
-    // Invalidate class cache so counts update immediately
+    // Invalidate class + students cache so counts update immediately
     await this.redis.deleteCachePattern(`classes:all:${student.schoolId}:*`);
+    await this.redis.deleteCachePattern(`students:list:${student.schoolId}:*`);
 
     void this.auditLog.log({
       action: 'STUDENT_DELETE',
@@ -511,6 +546,7 @@ export class StudentsService {
     });
 
     await this.redis.deleteCachePattern(`classes:all:${schoolId}:*`);
+    await this.redis.deleteCachePattern(`students:list:${schoolId}:*`);
 
     void this.auditLog.log({
       action: 'STUDENT_BULK_DELETE',
