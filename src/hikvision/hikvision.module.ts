@@ -1,4 +1,5 @@
 import { forwardRef, Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { HikvisionService } from './hikvision.service';
 import { HikvisionController } from './hikvision.controller';
 import { HikvisionApiService } from './hikvision-api.service';
@@ -9,6 +10,7 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
 
 @Module({
   imports: [
+    ConfigModule,
     PrismaModule,
     PayrollModule,
     forwardRef(() => AttendanceModule),

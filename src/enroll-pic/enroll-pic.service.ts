@@ -23,7 +23,7 @@ export class EnrollPicService {
 
   private buildEnrollNumber(prefix: '20' | '30', seq: number) {
     const yy = String(new Date().getFullYear()).slice(-2); // "26"
-    // 001..999 (kerak bo‘lsa 4 xonaga o‘tib ketadi)
+    // 001..999 (kerak bo'lsa 4 xonaga o'tib ketadi)
     const seqStr = String(seq).padStart(3, '0');
     return `${prefix}${yy}${seqStr}`; // masalan: 20 26 001 => 2026001
   }
@@ -33,7 +33,7 @@ export class EnrollPicService {
     schoolId: string,
     kind: 'student' | 'staff', // staff = teacher + director
   ): Promise<string> {
-    // row bo‘lmasa yaratadi
+    // row bo'lmasa yaratadi
     await tx.enrollCounter.upsert({
       where: { schoolId },
       create: { schoolId },
@@ -133,7 +133,7 @@ export class EnrollPicService {
       const chunk = rows.slice(i, i + concurrency);
       const results = await Promise.allSettled(
         chunk.map(async (r) => {
-          const emp = empMap.get(`${r.kind}:${r.id}`) || ‘’;
+          const emp = empMap.get(`${r.kind}:${r.id}`) || '';
           if (!emp) return;
           const fileName = `${emp}_2_0_${emp}_0.jpg`;
           const filePath = path.join(outputDir, fileName);
@@ -141,7 +141,7 @@ export class EnrollPicService {
         }),
       );
       for (const res of results) {
-        if (res.status === ‘fulfilled’) ok++;
+        if (res.status === 'fulfilled') ok++;
         else {
           failed++;
           this.logger.warn(`Photo failed: ${res.reason?.message}`);
@@ -155,7 +155,7 @@ export class EnrollPicService {
   // ✅ EXPORT SCHOOL
   // =========================
   async exportSchoolPhotos(schoolId: string): Promise<string> {
-    const tempBase = path.join(process.cwd(), ‘temp’);
+    const tempBase = path.join(process.cwd(), 'temp');
     const tempDir  = path.join(tempBase, `enroll_pic_${schoolId}_${Date.now()}`);
     fs.mkdirSync(tempDir, { recursive: true });
 
@@ -171,8 +171,8 @@ export class EnrollPicService {
     ]);
 
     const rows: PersonRow[] = [
-      ...students.map((s) => ({ ...s, kind: ‘student’ as const })),
-      ...teachers.map((t) => ({ ...t, kind: ‘teacher’ as const })),
+      ...students.map((s) => ({ ...s, kind: 'student' as const })),
+      ...teachers.map((t) => ({ ...t, kind: 'teacher' as const })),
     ];
 
     this.logger.log(`📸 Export start: ${rows.length} photos, school=${schoolId}`);
@@ -200,7 +200,7 @@ export class EnrollPicService {
       select: { id: true, name: true },
     });
 
-    const tempBase = path.join(process.cwd(), ‘temp’);
+    const tempBase = path.join(process.cwd(), 'temp');
     const rootDir  = path.join(tempBase, `enroll_pic_district_${districtId}_${Date.now()}`);
     fs.mkdirSync(rootDir, { recursive: true });
 
@@ -213,7 +213,7 @@ export class EnrollPicService {
       const chunk = schools.slice(i, i + SCHOOL_CONCURRENCY);
       await Promise.allSettled(
         chunk.map(async (school) => {
-          const safeName = (school.name || school.id).replace(/[^a-zA-Z0-9]/g, ‘_’);
+          const safeName = (school.name || school.id).replace(/[^a-zA-Z0-9]/g, '_');
           const schoolDir = path.join(rootDir, safeName);
           fs.mkdirSync(schoolDir, { recursive: true });
 
@@ -229,8 +229,8 @@ export class EnrollPicService {
           ]);
 
           const rows: PersonRow[] = [
-            ...students.map((s) => ({ ...s, kind: ‘student’ as const })),
-            ...teachers.map((t) => ({ ...t, kind: ‘teacher’ as const })),
+            ...students.map((s) => ({ ...s, kind: 'student' as const })),
+            ...teachers.map((t) => ({ ...t, kind: 'teacher' as const })),
           ];
           if (rows.length === 0) return;
 
@@ -256,14 +256,14 @@ export class EnrollPicService {
   private async createZip(sourceDir: string, outPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const output  = fs.createWriteStream(outPath);
-      const archive = archiver(‘zip’, { zlib: { level: 0 } });
+      const archive = archiver('zip', { zlib: { level: 0 } });
 
-      output.on(‘close’, () => resolve());
-      output.on(‘error’, reject);
-      archive.on(‘error’, reject);
+      output.on('close', () => resolve());
+      output.on('error', reject);
+      archive.on('error', reject);
 
       archive.pipe(output);
-      archive.directory(sourceDir, ‘enroll_pic’);
+      archive.directory(sourceDir, 'enroll_pic');
       archive.finalize();
     });
   }

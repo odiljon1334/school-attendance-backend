@@ -12,11 +12,15 @@ import {
   Query,
   Req,
   GoneException,
+  UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
+import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
 
 import { HikvisionService } from './hikvision.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { CreateDeviceDto, UpdateDeviceDto, RegisterFaceDto } from './dto/hikvision.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guards';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -26,7 +30,71 @@ import { UserRole } from '@prisma/client';
 @Controller('hikvision')
 @SkipThrottle() // webhook — terminal yuboradi, limit kerak emas
 export class HikvisionController {
-  constructor(private readonly hikvisionService: HikvisionService) {}
+  private readonly logger = new Logger(HikvisionController.name);
+
+  constructor(
+    private readonly hikvisionService: HikvisionService,
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
+
+  // ──────────────────────────────────────────────────────────
+  // Webhook token + IP tekshiruvi
+  // Terminal JWT bermaydi — shuning uchun shared secret ishlatamiz.
+  // HIKVISION_WEBHOOK_SECRET env bo'lmasa → faqat IP tekshiramiz (warning)
+  // ──────────────────────────────────────────────────────────
+  private async verifyWebhook(req: Request): Promise<void> {
+    const secret = this.config.get<string>('HIKVISION_WEBHOOK_SECRET');
+
+    // ── 1. Token tekshiruvi ───────────────────────────────
+    if (secret) {
+      const authHeader = req.headers['authorization'] ?? '';
+      const tokenHeader = req.headers['x-webhook-token'] ?? '';
+      const queryToken  = (req.query?.token ?? '') as string;
+
+      const incoming =
+        (typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '') : '') ||
+        (typeof tokenHeader === 'string' ? tokenHeader : '') ||
+        queryToken;
+
+      if (incoming !== secret) {
+        this.logger.warn(
+          `Webhook rejected — invalid token from ${req.ip}`,
+        );
+        throw new UnauthorizedException('Invalid webhook token');
+      }
+    } else {
+      // Secret yo'q bo'lsa — faqat ogohlantirish
+      this.logger.warn(
+        'HIKVISION_WEBHOOK_SECRET not set — webhook is open! Set it in .env',
+      );
+    }
+
+    // ── 2. IP whitelist (bonus qatlam) ────────────────────
+    // HikvisionDevice.ipAddress ro'yxatida bo'lmasa reject qilamiz
+    // Lekin faqat bazada kamida 1 ta device yozuvi bo'lsa ishlaydi
+    const deviceCount = await this.prisma.hikvisionDevice.count();
+    if (deviceCount > 0) {
+      const clientIp = (
+        (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+        req.ip ||
+        ''
+      ).trim();
+
+      // ::ffff:192.168.1.1 → 192.168.1.1
+      const normalizedIp = clientIp.replace(/^::ffff:/, '');
+
+      const known = await this.prisma.hikvisionDevice.findFirst({
+        where: { ipAddress: normalizedIp, isActive: true },
+        select: { id: true },
+      });
+
+      if (!known) {
+        this.logger.warn(`Webhook rejected — unknown device IP: ${normalizedIp}`);
+        throw new UnauthorizedException('Device IP not whitelisted');
+      }
+    }
+  }
 
   private offlineOnlyError() {
     throw new GoneException(
@@ -104,6 +172,8 @@ export class HikvisionController {
   @Post('webhook/face-recognition')
   @HttpCode(HttpStatus.OK)
   async handleFaceRecognitionWebhook(@Req() req: Request) {
+    await this.verifyWebhook(req);
+
     const ct = String(req.headers['content-type'] || '');
     const body = req.body as Buffer;
 
