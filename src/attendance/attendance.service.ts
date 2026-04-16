@@ -230,24 +230,36 @@ export class AttendanceService {
     let attendance: any;
 
     if (!existing) {
-      attendance = await this.prisma.attendance.create({
-        data: {
-          schoolId: person.schoolId,
-          studentId: person.type === 'STUDENT' ? person.id : undefined,
-          teacherId: person.type === 'TEACHER' || person.type === 'DIRECTOR' ? person.id : undefined,
-          date: todayStart,
-          status: isLate ? 'LATE' : 'PRESENT',
-          checkInTime: now,
-          checkOutTime: null,
-          lateMinutes: lateMinutes > 0 ? lateMinutes : 0,
-          lateCount: isLate ? 1 : 0,
-          deviceId,
-        },
-      });
+      try {
+        attendance = await this.prisma.attendance.create({
+          data: {
+            schoolId: person.schoolId,
+            studentId: person.type === 'STUDENT' ? person.id : undefined,
+            teacherId: person.type === 'TEACHER' || person.type === 'DIRECTOR' ? person.id : undefined,
+            date: todayStart,
+            status: isLate ? 'LATE' : 'PRESENT',
+            checkInTime: now,
+            checkOutTime: null,
+            lateMinutes: lateMinutes > 0 ? lateMinutes : 0,
+            lateCount: isLate ? 1 : 0,
+            deviceId,
+          },
+        });
 
-      this.logger.log(
-        `✅ CHECK-IN (new): ${person.firstName} | ${now.toTimeString().slice(0, 5)} | Late: ${isLate}`,
-      );
+        this.logger.log(
+          `✅ CHECK-IN (new): ${person.firstName} | ${now.toTimeString().slice(0, 5)} | Late: ${isLate}`,
+        );
+      } catch (err: any) {
+        // P2002 = unique constraint — ikkita parallel so'rov bir vaqtda create qilmoqchi bo'ldi
+        // Birinchisi muvaffaqiyatli yaratdi, ikkinchisini ignore qilamiz
+        if (err?.code === 'P2002') {
+          this.logger.warn(
+            `Race condition (P2002) — duplicate check-in ignored for ${person.firstName} ${person.lastName}`,
+          );
+          return { success: true, action: 'IGNORED', message: 'Duplicate concurrent scan' };
+        }
+        throw err;
+      }
     } else {
       const newLateMinutes = (existing.lateMinutes || 0) + lateMinutes;
       const newLateCount = (existing.lateCount || 0) + 1;
