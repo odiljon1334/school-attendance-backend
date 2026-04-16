@@ -43,6 +43,7 @@ export class StudentsController {
   @Get()
   @Roles(
     UserRole.SUPER_ADMIN,
+    UserRole.MINISTRY,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,
@@ -65,6 +66,7 @@ export class StudentsController {
   @Get(':id/photo')
   @Roles(
     UserRole.SUPER_ADMIN,
+    UserRole.MINISTRY,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,
@@ -102,6 +104,7 @@ export class StudentsController {
   @Get(':id')
   @Roles(
     UserRole.SUPER_ADMIN,
+    UserRole.MINISTRY,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,
@@ -115,6 +118,7 @@ export class StudentsController {
   @Get(':id/attendance')
   @Roles(
     UserRole.SUPER_ADMIN,
+    UserRole.MINISTRY,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,

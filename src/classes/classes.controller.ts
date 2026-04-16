@@ -39,6 +39,7 @@ export class ClassesController {
   @Get()
   @Roles(
     UserRole.SUPER_ADMIN,
+    UserRole.MINISTRY,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,
@@ -54,6 +55,7 @@ export class ClassesController {
   @Get(':id')
   @Roles(
     UserRole.SUPER_ADMIN,
+    UserRole.MINISTRY,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,

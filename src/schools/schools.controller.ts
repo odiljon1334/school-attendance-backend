@@ -65,6 +65,7 @@ export class SchoolsController {
   @Get(':id')
   @Roles(
     UserRole.SUPER_ADMIN,
+    UserRole.MINISTRY,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,
@@ -76,6 +77,7 @@ export class SchoolsController {
   @Get(':id/statistics')
   @Roles(
     UserRole.SUPER_ADMIN,
+    UserRole.MINISTRY,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,

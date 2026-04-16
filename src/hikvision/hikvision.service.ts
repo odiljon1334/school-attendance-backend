@@ -90,6 +90,14 @@ export class HikvisionService {
       `Webhook event: employeeNo=${employeeNo} deviceId=${deviceIdRaw || 'null'} ct=${event.contentType || ''}`,
     );
 
+    // Турникет онлайн — обновляем lastSeenAt
+    if (deviceIdRaw) {
+      this.prisma.hikvisionDevice.updateMany({
+        where: { deviceId: deviceIdRaw },
+        data: { lastSeenAt: new Date() },
+      }).catch(() => {});
+    }
+
     if (!employeeNo || !/^\d+$/.test(employeeNo)) {
       this.logger.warn(`Invalid employeeNo: "${employeeNo}"`);
       return { success: false, message: 'Invalid employeeNo' };

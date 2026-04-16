@@ -29,6 +29,8 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { SystemSettingsModule } from './system-settings/system-settings.module';
 import { AuditLogModule } from './audit-log/audit-log.module';
 import { MessagingSubscriptionsModule } from './messaging-subscriptions/messaging-subscriptions.module';
+import { CamerasModule } from './cameras/cameras.module';
+import { MapModule } from './map/map.module';
 
 @Module({
   imports: [
@@ -67,6 +69,8 @@ import { MessagingSubscriptionsModule } from './messaging-subscriptions/messagin
     SystemSettingsModule,
     AuditLogModule,
     MessagingSubscriptionsModule,
+    CamerasModule,
+    MapModule,
   ],
   controllers: [AppController],
   providers: [AppService],

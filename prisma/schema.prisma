@@ -9,6 +9,7 @@ datasource db {
 
 enum UserRole {
   SUPER_ADMIN
+  MINISTRY          // Вазирлик — только карта и статистика
   DISTRICT_ADMIN
   SCHOOL_ADMIN
   DIRECTOR
@@ -87,8 +88,12 @@ model User {
 model District {
   id     String @id @default(uuid())
   name   String
+  nameRu String?       // Название на русском (напр. "Чуйская область")
   region String
   code   String @unique
+  osmId  String?       // OpenStreetMap admin_level relation ID (map matching)
+  lat    Float?        // Centre latitude
+  lng    Float?        // Centre longitude
 
   schools School[]
 
@@ -102,20 +107,26 @@ model School {
   district   District? @relation(fields: [districtId], references: [id])
 
   name    String
+  nameRu  String?       // Название на русском
   code    String  @unique
   address String
   phone   String?
   email   String?
 
+  hasTurnstile Boolean @default(false)  // Турникет/Hikvision terminal bor-yo'q
+  lat          Float?                   // Koordinata (xarita uchun)
+  lng          Float?
+
   username String? @unique
   password String?
-  credentialsChangedAt DateTime? // Parol o'zgarganda eski tokenlar invalid bo'ladi
+  credentialsChangedAt DateTime?
 
   classes          Class[]
   students         Student[]
   teachers         Teacher[]
   attendances      Attendance[]
   hikvisionDevices HikvisionDevice[]
+  cameras          SchoolCamera[]
 
   enrollCounter EnrollCounter?
 
@@ -126,6 +137,7 @@ model School {
   updatedAt DateTime @updatedAt
 
   @@index([username])
+  @@index([districtId])
 }
 
 model Class {
@@ -421,6 +433,8 @@ model Attendance {
   status       AttendanceStatus
   checkInTime  DateTime?
   checkOutTime DateTime?
+  checkInPhoto  String?          // Фото при входе (от терминала)
+  checkOutPhoto String?          // Фото при выходе
   lateMinutes  Int?
   lateCount    Int              @default(0)
   deviceId     String?
@@ -432,6 +446,7 @@ model Attendance {
   @@unique([studentId, date])
   @@unique([teacherId, date])
   @@index([schoolId, date])
+  @@index([createdAt])            // 2-ойlik tozalash uchun
 }
 
 //
@@ -533,6 +548,7 @@ model HikvisionDevice {
   username   String
   password   String
   isActive   Boolean             @default(true)
+  lastSeenAt DateTime?           // Последний раз онлайн (webhook)
   identities TurnstileIdentity[]
 
   createdAt DateTime @default(now())
@@ -653,4 +669,22 @@ model WhatsappSubscription {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ─── School Cameras (MediaMTX / RTSP stream) ─────────────────────────────────
+model SchoolCamera {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  name        String
+  rtspUrl     String?   // rtsp://user:pass@ip:554/...
+  streamPath  String?   // MediaMTX path, напр. "school1/cam1"
+  isActive    Boolean   @default(true)
+  location    String?   // "Входная дверь", "Коридор" и т.д.
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([schoolId])
 }

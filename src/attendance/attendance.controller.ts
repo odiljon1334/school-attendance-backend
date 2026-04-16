@@ -43,6 +43,7 @@ export class AttendanceController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(
     UserRole.SUPER_ADMIN,
+    UserRole.MINISTRY,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,
@@ -90,6 +91,7 @@ export class AttendanceController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(
     UserRole.SUPER_ADMIN,
+    UserRole.MINISTRY,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,
@@ -107,6 +109,7 @@ export class AttendanceController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(
     UserRole.SUPER_ADMIN,
+    UserRole.MINISTRY,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,
@@ -127,6 +130,7 @@ export class AttendanceController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(
     UserRole.SUPER_ADMIN,
+    UserRole.MINISTRY,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,
@@ -152,6 +156,7 @@ export class AttendanceController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(
     UserRole.SUPER_ADMIN,
+    UserRole.MINISTRY,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,
@@ -176,6 +181,7 @@ export class AttendanceController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(
     UserRole.SUPER_ADMIN,
+    UserRole.MINISTRY,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,
@@ -189,6 +195,7 @@ export class AttendanceController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(
     UserRole.SUPER_ADMIN,
+    UserRole.MINISTRY,
     UserRole.DISTRICT_ADMIN,
     UserRole.SCHOOL_ADMIN,
     UserRole.DIRECTOR,

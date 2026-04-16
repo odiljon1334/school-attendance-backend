@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService } from '../notifications/telegram.service';
 import { SmsService } from '../notifications/sms.service';
@@ -8,6 +8,7 @@ import { DashboardService } from 'src/dashboard/dashboard.service';
 import { ConfigService } from '@nestjs/config';
 import { WhatsappService } from 'src/whatsapp/whatsapp.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { AttendanceGateway } from './attendance.gateway';
 
 const MIN_CHECKOUT_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 soat (checkout uchun)
 const RE_ENTRY_GRACE_MS = 10 * 60 * 1000; // 10 daqiqa
@@ -30,6 +31,7 @@ export class AttendanceService {
     private configService: ConfigService,
     private wa: WhatsappService,
     private auditLog: AuditLogService,
+    @Optional() private gateway: AttendanceGateway,
   ) {}
 
   // ======================================================
@@ -298,6 +300,23 @@ export class AttendanceService {
 
     await this.invalidateDashboardCache(person.schoolId);
 
+    // ── Real-time WebSocket broadcast ──
+    try {
+      this.gateway?.emit({
+        attendanceId: attendance.id,
+        schoolId: person.schoolId,
+        personName: `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim(),
+        personType: person.type,
+        className: person.class?.name ?? person.className ?? undefined,
+        photo: capturePhoto ?? undefined,
+        time: now.toISOString(),
+        isLate,
+        action: 'CHECK_IN',
+      });
+    } catch (e) {
+      this.logger.warn('WS emit failed (non-critical):', e?.message);
+    }
+
     return { success: true, action: 'CHECK_IN', attendance };
   }
 
@@ -334,6 +353,22 @@ export class AttendanceService {
     }
 
     await this.invalidateDashboardCache(person.schoolId);
+
+    // ── Real-time WebSocket broadcast ──
+    try {
+      this.gateway?.emit({
+        attendanceId: updated.id,
+        schoolId: person.schoolId,
+        personName: `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim(),
+        personType: person.type,
+        photo: capturePhoto ?? undefined,
+        time: now.toISOString(),
+        isLate: false,
+        action: 'CHECK_OUT',
+      });
+    } catch (e) {
+      this.logger.warn('WS emit failed (non-critical):', e?.message);
+    }
 
     return { success: true, action: 'CHECK_OUT', attendance: updated };
   }
