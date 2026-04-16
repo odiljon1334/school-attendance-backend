@@ -64,6 +64,8 @@ export class BillingService {
     const mode = dto.mode ?? GenerateMode.SKIP_EXISTING;
     const sendNotifications = dto.sendNotifications ?? true;
     const strategy = dto.strategy ?? GenerateStrategy.ROLLING_DUE;
+    // Aka-uka chegirmasi faqat admin tomonidan aniq yoqilganda ishlaydi
+    const applySiblingDiscount = dto.applySiblingDiscount ?? false;
 
     // 1) Load students + parent links
     const students = (await this.prisma.student.findMany({
@@ -107,18 +109,30 @@ export class BillingService {
       groups.set(key, arr);
     }
 
-    // sibling: top2 pending, rest waived
-    for (const [, list] of groups.entries()) {
-      const sorted = [...list].sort((a, b) => {
-        const t = a.createdAt.getTime() - b.createdAt.getTime();
-        return t !== 0 ? t : a.id.localeCompare(b.id);
-      });
+    // Aka-uka chegirmasi: FAQAT admin `applySiblingDiscount: true` yuborsa ishlaydi
+    // Default: false — avtomatik berilmaydi
+    if (applySiblingDiscount) {
+      for (const [, list] of groups.entries()) {
+        const sorted = [...list].sort((a, b) => {
+          const t = a.createdAt.getTime() - b.createdAt.getTime();
+          return t !== 0 ? t : a.id.localeCompare(b.id);
+        });
 
-      sorted.forEach((s, idx) => {
-        if (decisions.has(s.id)) return; // lowIncome already
-        if (idx < 2) decisions.set(s.id, { status: PaymentStatus.PENDING });
-        else decisions.set(s.id, { status: PaymentStatus.WAIVED, waiveReason: PaymentWaiveReason.SIBLING_DISCOUNT });
-      });
+        sorted.forEach((s, idx) => {
+          if (decisions.has(s.id)) return; // lowIncome already set
+          if (idx < 2) decisions.set(s.id, { status: PaymentStatus.PENDING });
+          else decisions.set(s.id, { status: PaymentStatus.WAIVED, waiveReason: PaymentWaiveReason.SIBLING_DISCOUNT });
+        });
+      }
+    } else {
+      // Chegirmasiz: barcha non-lowIncome studentlar PENDING
+      for (const [, list] of groups.entries()) {
+        for (const s of list) {
+          if (!decisions.has(s.id)) {
+            decisions.set(s.id, { status: PaymentStatus.PENDING });
+          }
+        }
+      }
     }
 
     // 3) Dispatch strategy

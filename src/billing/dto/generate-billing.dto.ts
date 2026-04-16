@@ -46,4 +46,13 @@ export class GenerateBillingDto {
   @IsBoolean()
   @IsOptional()
   sendNotifications?: boolean;
+
+  /**
+   * Aka-uka chegirmasi (SIBLING_DISCOUNT).
+   * true bo'lganda: bir ota-onaning 3+ farzandidan 3-chisi bepul bo'ladi.
+   * Default: false — admin o'zi belgilamasa HECH QACHON qo'llanilmaydi.
+   */
+  @IsBoolean()
+  @IsOptional()
+  applySiblingDiscount?: boolean;
 }
