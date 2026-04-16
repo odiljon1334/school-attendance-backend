@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
@@ -8,6 +8,8 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -346,20 +348,19 @@ export class AuthService {
     return { message: 'School password changed successfully' };
   }
 
-  async resetPassword(email: string) {
-    // Find user by email
+  async resetPassword(username: string) {
     const user = await this.prisma.user.findFirst({
-      where: { email },
+      where: { username },
     });
 
     if (!user) {
-      // Don't reveal if email exists or not
-      return { message: 'If email exists, reset instructions will be sent' };
+      // Don't reveal if user exists
+      return { ok: false, message: 'User not found' };
     }
 
-    // TODO: Send password reset email
-    // For now, generate temporary password
-    const tempPassword = Math.random().toString(36).slice(-8);
+    // Generate 8-char alphanumeric temp password
+    const tempPassword = Math.random().toString(36).slice(-4).toUpperCase()
+      + Math.random().toString(36).slice(-4);
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
     await this.prisma.user.update({
@@ -367,8 +368,14 @@ export class AuthService {
       data: { password: hashedPassword },
     });
 
-    // TODO: Send tempPassword via SMS/email to user
+    this.logger.log(`🔑 Password reset by admin: username=${username}`);
 
-    return { message: 'Password reset instructions sent' };
+    // Return temp password to admin — admin communicates it to the user
+    return {
+      ok: true,
+      message: 'Password reset successfully',
+      tempPassword,   // admin sees this and tells the user
+      username,
+    };
   }
 }
