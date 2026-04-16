@@ -38,10 +38,12 @@ import { MapModule } from './map/map.module';
       isGlobal: true,
       envFilePath: '.env',
     }),
-    // ✅ Rate limiting: login uchun 10 urinish/60 soniya
+    // ✅ Rate limiting (global — per IP)
+    // Login: alohida @Throttle({ short: { limit: 5 } }) bilan 5/60s cheklangan
+    // Global: 120/60s = 2 req/s average — normal dashboard use uchun yetarli
     ThrottlerModule.forRoot([
-      { name: 'short', ttl: 60000, limit: 10 },   // 10 req/60s
-      { name: 'long',  ttl: 3600000, limit: 100 }, // 100 req/soat
+      { name: 'short', ttl: 60000,   limit: 120 },  // 120 req/daqiqa
+      { name: 'long',  ttl: 3600000, limit: 1000 }, // 1000 req/soat
     ]),
     PrismaModule,
     AuthModule,
