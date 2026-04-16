@@ -44,6 +44,8 @@ export class AttendanceService {
     classId?: string;
     studentId?: string;
     teacherId?: string;
+    limit?: number;
+    offset?: number;
   }) {
     const where: any = { schoolId: dto.schoolId };
 
@@ -61,10 +63,24 @@ export class AttendanceService {
       where.date = { gte: start, lte: end };
     }
 
-    return this.prisma.attendance.findMany({
-      where,
-      orderBy: { date: 'desc' },
-    });
+    const limit  = Math.min(dto.limit  ?? 500, 1000); // max 1000 per request
+    const offset = dto.offset ?? 0;
+
+    const [records, total] = await Promise.all([
+      this.prisma.attendance.findMany({
+        where,
+        orderBy: { date: 'desc' },
+        take:  limit,
+        skip:  offset,
+        include: {
+          student: { select: { id: true, firstName: true, lastName: true, photo: true, class: { select: { grade: true, section: true } } } },
+          teacher: { select: { id: true, firstName: true, lastName: true, photo: true, type: true } },
+        },
+      }),
+      this.prisma.attendance.count({ where }),
+    ]);
+
+    return { records, total, limit, offset };
   }
 
   // ======================================================
@@ -1074,28 +1090,74 @@ export class AttendanceService {
     return attendance;
   }
 
-  async findAll(schoolId?: string, date?: string, studentId?: string, teacherId?: string, classId?: string) {
+  async findAll(
+    schoolId?: string,
+    date?: string,
+    studentId?: string,
+    teacherId?: string,
+    classId?: string,
+    startDate?: string,
+    endDate?: string,
+    limit = 500,
+    offset = 0,
+  ) {
     const where: any = {};
     if (schoolId) where.schoolId = schoolId;
     if (studentId) where.studentId = studentId;
     if (teacherId) where.teacherId = teacherId;
 
+    // Single date filter
     if (date) {
       const d = new Date(date);
-      const start = new Date(d);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(d);
+      const start = new Date(d); start.setHours(0, 0, 0, 0);
+      const end   = new Date(d); end.setHours(23, 59, 59, 999);
+      where.date = { gte: start, lte: end };
+    // Date range filter (history page)
+    } else if (startDate || endDate) {
+      const start = startDate ? new Date(startDate) : new Date('1970-01-01');
+      const end   = endDate   ? new Date(endDate)   : new Date();
       end.setHours(23, 59, 59, 999);
       where.date = { gte: start, lte: end };
     }
 
     if (classId) where.student = { classId };
 
-    return this.prisma.attendance.findMany({
-      where,
-      include: { student: true, teacher: true, school: true },
-      orderBy: { date: 'desc' },
-    });
+    const safeLimit = Math.min(limit, 1000);
+
+    const [records, total] = await Promise.all([
+      this.prisma.attendance.findMany({
+        where,
+        // Only select fields needed by the frontend — skip heavy photo/base64 blobs
+        select: {
+          id: true,
+          schoolId: true,
+          studentId: true,
+          teacherId: true,
+          date: true,
+          status: true,
+          checkInTime: true,
+          checkOutTime: true,
+          checkInPhoto: true,
+          lateMinutes: true,
+          createdAt: true,
+          student: {
+            select: {
+              id: true, firstName: true, lastName: true, photo: true,
+              class: { select: { grade: true, section: true } },
+            },
+          },
+          teacher: {
+            select: { id: true, firstName: true, lastName: true, photo: true, type: true },
+          },
+        },
+        orderBy: { date: 'desc' },
+        take:  safeLimit,
+        skip:  offset,
+      }),
+      this.prisma.attendance.count({ where }),
+    ]);
+
+    return { records, total, limit: safeLimit, offset };
   }
 
   async findOne(id: string) {

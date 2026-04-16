@@ -64,6 +64,8 @@ export class PaymentsService {
     status?: PaymentStatus;
     plan?: BillingPlan;
     periodKey?: string;
+    limit?: number;
+    offset?: number;
   }) {
     const { schoolId, studentId, classId, status, plan, periodKey } = params;
 
@@ -71,30 +73,40 @@ export class PaymentsService {
 
     if (schoolId || classId) {
       where.student = {
-      ...(schoolId ? { schoolId } : {}),
-      ...(classId ? { classId } : {}),
-    };
-  }
+        ...(schoolId ? { schoolId } : {}),
+        ...(classId ? { classId } : {}),
+      };
+    }
 
     if (studentId) where.studentId = studentId;
     if (status) where.status = status;
     if (plan) where.plan = plan;
     if (periodKey) where.periodKey = periodKey;
 
-    return this.prisma.payment.findMany({
-      where,
-      include: {
-        student: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            class: { select: { grade: true, section: true } },
+    const limit  = Math.min(params.limit  ?? 100, 500);
+    const offset = params.offset ?? 0;
+
+    const [data, total] = await Promise.all([
+      this.prisma.payment.findMany({
+        where,
+        include: {
+          student: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              class: { select: { grade: true, section: true } },
+            },
           },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+        take:  limit,
+        skip:  offset,
+      }),
+      this.prisma.payment.count({ where }),
+    ]);
+
+    return { data, total, limit, offset };
   }
 
   async buildExcelReport(dto: { schoolId: string; startDate?: string; endDate?: string }) {

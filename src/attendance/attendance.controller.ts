@@ -166,17 +166,27 @@ export class AttendanceController {
   )
   findAll(
     @Req() req: Request,
-    @Query('schoolId') schoolId?: string,
-    @Query('date') date?: string,
-    @Query('studentId') studentId?: string,
-    @Query('teacherId') teacherId?: string,
-    @Query('classId') classId?: string,
+    @Query('schoolId')   schoolId?: string,
+    @Query('date')       date?: string,
+    @Query('studentId')  studentId?: string,
+    @Query('teacherId')  teacherId?: string,
+    @Query('classId')    classId?: string,
+    @Query('startDate')  startDate?: string,
+    @Query('endDate')    endDate?: string,
+    @Query('limit')      limit?: string,
+    @Query('offset')     offset?: string,
   ) {
     const user = (req as any).user;
     const restrictedRoles = [UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR, UserRole.TEACHER];
     const isRestricted = (user?.role && restrictedRoles.includes(user.role)) || (!user?.role && user?.schoolId);
     if (isRestricted) schoolId = user.schoolId;
-    return this.attendanceService.findAll(schoolId, date, studentId, teacherId, classId);
+
+    return this.attendanceService.findAll(
+      schoolId, date, studentId, teacherId, classId,
+      startDate, endDate,
+      limit  ? Math.min(Number(limit),  1000) : 500,
+      offset ? Number(offset) : 0,
+    );
   }
 
   @Get('today/:schoolId')
