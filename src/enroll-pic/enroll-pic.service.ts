@@ -118,16 +118,47 @@ export class EnrollPicService {
 }
 
   // =========================
+  // ✅ PARALLEL PHOTO PROCESSOR
+  // =========================
+  private async processPhotosParallel(
+    rows: PersonRow[],
+    empMap: Map<string, string>,
+    outputDir: string,
+    concurrency = 12,
+  ): Promise<{ ok: number; failed: number }> {
+    let ok = 0;
+    let failed = 0;
+
+    for (let i = 0; i < rows.length; i += concurrency) {
+      const chunk = rows.slice(i, i + concurrency);
+      const results = await Promise.allSettled(
+        chunk.map(async (r) => {
+          const emp = empMap.get(`${r.kind}:${r.id}`) || ‘’;
+          if (!emp) return;
+          const fileName = `${emp}_2_0_${emp}_0.jpg`;
+          const filePath = path.join(outputDir, fileName);
+          await this.savePhoto(r.photo, filePath);
+        }),
+      );
+      for (const res of results) {
+        if (res.status === ‘fulfilled’) ok++;
+        else {
+          failed++;
+          this.logger.warn(`Photo failed: ${res.reason?.message}`);
+        }
+      }
+    }
+    return { ok, failed };
+  }
+
+  // =========================
   // ✅ EXPORT SCHOOL
   // =========================
   async exportSchoolPhotos(schoolId: string): Promise<string> {
-    // har request uchun unique temp
-    const tempBase = path.join(process.cwd(), 'temp');
-    const tempDir = path.join(tempBase, `enroll_pic_${schoolId}_${Date.now()}`);
+    const tempBase = path.join(process.cwd(), ‘temp’);
+    const tempDir  = path.join(tempBase, `enroll_pic_${schoolId}_${Date.now()}`);
+    fs.mkdirSync(tempDir, { recursive: true });
 
-    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-
-    // 1) fetch users with photos (+ enrollNumber)
     const [students, teachers] = await Promise.all([
       this.prisma.student.findMany({
         where: { schoolId, photo: { not: null } },
@@ -140,38 +171,23 @@ export class EnrollPicService {
     ]);
 
     const rows: PersonRow[] = [
-      ...students.map((s) => ({ ...s, kind: 'student' as const })),
-      ...teachers.map((t) => ({ ...t, kind: 'teacher' as const })),
+      ...students.map((s) => ({ ...s, kind: ‘student’ as const })),
+      ...teachers.map((t) => ({ ...t, kind: ‘teacher’ as const })),
     ];
 
-    this.logger.log(`📸 Exporting ${rows.length} photos for school=${schoolId}`);
+    this.logger.log(`📸 Export start: ${rows.length} photos, school=${schoolId}`);
+    const t0 = Date.now();
 
-    // 2) ensure enrollNumber exists (generate for missing)
     const empMap = await this.ensureEnrollNumbers(schoolId, rows);
+    const { ok, failed } = await this.processPhotosParallel(rows, empMap, tempDir);
 
-    // 3) write photos
-    for (const r of rows) {
-      const emp = empMap.get(`${r.kind}:${r.id}`) || '';
-      if (!emp) continue;
-
-      const fileName = `${emp}_2_0_${emp}_0.jpg`;
-      const filePath = path.join(tempDir, fileName);
-
-      await this.savePhoto(r.photo, filePath);
-
-      this.logger.log(
-        `✅ ${r.kind}: ${(r.firstName || '').trim()} ${(r.lastName || '').trim()} -> ${fileName}`,
-      );
-    }
-
-    // 4) zip
     const zipPath = path.join(tempBase, `enroll_pic_${schoolId}_${Date.now()}.zip`);
     await this.createZip(tempDir, zipPath);
-
-    // 5) cleanup temp folder
     fs.rmSync(tempDir, { recursive: true, force: true });
 
-    this.logger.log(`✅ ZIP created: ${zipPath}`);
+    this.logger.log(
+      `✅ ZIP ready in ${((Date.now() - t0) / 1000).toFixed(1)}s — ok:${ok} failed:${failed}`,
+    );
     return zipPath;
   }
 
@@ -184,68 +200,70 @@ export class EnrollPicService {
       select: { id: true, name: true },
     });
 
-    const tempBase = path.join(process.cwd(), 'temp');
-    const rootDir = path.join(tempBase, `enroll_pic_district_${districtId}_${Date.now()}`);
-    if (!fs.existsSync(rootDir)) fs.mkdirSync(rootDir, { recursive: true });
+    const tempBase = path.join(process.cwd(), ‘temp’);
+    const rootDir  = path.join(tempBase, `enroll_pic_district_${districtId}_${Date.now()}`);
+    fs.mkdirSync(rootDir, { recursive: true });
 
-    for (const school of schools) {
-      const safeName = (school.name || school.id).replace(/[^a-zA-Z0-9]/g, '_');
-      const schoolDir = path.join(rootDir, safeName);
-      if (!fs.existsSync(schoolDir)) fs.mkdirSync(schoolDir, { recursive: true });
+    this.logger.log(`📸 District export: ${schools.length} schools`);
+    const t0 = Date.now();
 
-      const [students, teachers] = await Promise.all([
-        this.prisma.student.findMany({
-          where: { schoolId: school.id, photo: { not: null } },
-          select: { id: true, photo: true, firstName: true, lastName: true, enrollNumber: true },
+    // Maktablarni parallel ishlaymiz (3 ta bir vaqtda)
+    const SCHOOL_CONCURRENCY = 3;
+    for (let i = 0; i < schools.length; i += SCHOOL_CONCURRENCY) {
+      const chunk = schools.slice(i, i + SCHOOL_CONCURRENCY);
+      await Promise.allSettled(
+        chunk.map(async (school) => {
+          const safeName = (school.name || school.id).replace(/[^a-zA-Z0-9]/g, ‘_’);
+          const schoolDir = path.join(rootDir, safeName);
+          fs.mkdirSync(schoolDir, { recursive: true });
+
+          const [students, teachers] = await Promise.all([
+            this.prisma.student.findMany({
+              where: { schoolId: school.id, photo: { not: null } },
+              select: { id: true, photo: true, firstName: true, lastName: true, enrollNumber: true },
+            }),
+            this.prisma.teacher.findMany({
+              where: { schoolId: school.id, photo: { not: null } },
+              select: { id: true, photo: true, firstName: true, lastName: true, enrollNumber: true },
+            }),
+          ]);
+
+          const rows: PersonRow[] = [
+            ...students.map((s) => ({ ...s, kind: ‘student’ as const })),
+            ...teachers.map((t) => ({ ...t, kind: ‘teacher’ as const })),
+          ];
+          if (rows.length === 0) return;
+
+          const empMap = await this.ensureEnrollNumbers(school.id, rows);
+          await this.processPhotosParallel(rows, empMap, schoolDir);
         }),
-        this.prisma.teacher.findMany({
-          where: { schoolId: school.id, photo: { not: null } },
-          select: { id: true, photo: true, firstName: true, lastName: true, enrollNumber: true },
-        }),
-      ]);
-
-      const rows: PersonRow[] = [
-        ...students.map((s) => ({ ...s, kind: 'student' as const })),
-        ...teachers.map((t) => ({ ...t, kind: 'teacher' as const })),
-      ];
-
-      if (rows.length === 0) continue;
-
-      const empMap = await this.ensureEnrollNumbers(school.id, rows);
-
-      for (const r of rows) {
-        const emp = empMap.get(`${r.kind}:${r.id}`) || '';
-        if (!emp) continue;
-
-        const fileName = `${emp}_2_0_${emp}_0.jpg`;
-        const filePath = path.join(schoolDir, fileName);
-        await this.savePhoto(r.photo, filePath);
-      }
+      );
     }
 
     const zipPath = path.join(tempBase, `enroll_pic_district_${districtId}.zip`);
     await this.createZip(rootDir, zipPath);
-
     fs.rmSync(rootDir, { recursive: true, force: true });
+
+    this.logger.log(`✅ District ZIP ready in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     return zipPath;
   }
 
   // =========================
-  // ZIP
+  // ZIP — level:0 (STORE)
+  // JPEG fayllar allaqachon siqilgan,
+  // level:9 faqat CPU sarflaydi, hajmni kamaytirmaydi
   // =========================
   private async createZip(sourceDir: string, outPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const output = fs.createWriteStream(outPath);
-      const archive = archiver('zip', { zlib: { level: 9 } });
+      const output  = fs.createWriteStream(outPath);
+      const archive = archiver(‘zip’, { zlib: { level: 0 } });
 
-      output.on('close', () => resolve());
-      output.on('error', (e) => reject(e));
-      archive.on('error', (err) => reject(err));
+      output.on(‘close’, () => resolve());
+      output.on(‘error’, reject);
+      archive.on(‘error’, reject);
 
       archive.pipe(output);
-
-      // enroll_pic folder name ichida bo‘lsin (terminal format)
-      archive.directory(sourceDir, 'enroll_pic');
+      archive.directory(sourceDir, ‘enroll_pic’);
       archive.finalize();
     });
   }
