@@ -52,8 +52,36 @@ export class AttendanceCleanupCron {
       this.logger.log(
         `Удалено записей: ${count}, фотографий: ${photoDeleted}`,
       );
+
+      // ── temp/ papkasini tozalaymiz (enroll_pic eksport qoldiqlari) ────────
+      await this.cleanTempDir();
     } catch (err: any) {
       this.logger.error(`Ошибка очистки: ${err.message}`);
+    }
+  }
+
+  /** temp/ ichidagi 6 soatdan eski fayllarni o'chiradi */
+  private async cleanTempDir() {
+    const tempDir = path.join(process.cwd(), 'temp');
+    if (!fs.existsSync(tempDir)) return;
+
+    const sixHoursAgo = Date.now() - 6 * 60 * 60 * 1000;
+    let removed = 0;
+
+    try {
+      for (const entry of fs.readdirSync(tempDir)) {
+        const fullPath = path.join(tempDir, entry);
+        try {
+          const stat = fs.statSync(fullPath);
+          if (stat.mtimeMs < sixHoursAgo) {
+            fs.rmSync(fullPath, { recursive: true, force: true });
+            removed++;
+          }
+        } catch { /* skip locked files */ }
+      }
+      if (removed > 0) this.logger.log(`temp/ cleaned: ${removed} items`);
+    } catch (err: any) {
+      this.logger.warn(`temp/ cleanup error: ${err.message}`);
     }
   }
 }

@@ -197,6 +197,7 @@ export class StudentsService {
 
     const students = await this.prisma.student.findMany({
       where,
+      take: 2000, // safety cap — 2000 dan ortiq o'quvchi bo'lsa pagination kerak
       select: {
         id: true,
         schoolId: true,
