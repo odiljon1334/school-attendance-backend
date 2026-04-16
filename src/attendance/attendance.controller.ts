@@ -64,9 +64,11 @@ export class AttendanceController {
   }
 
   // ==========================================
-  // ✅ TURNSTILE TEST (DEV/QA uchun)
+  // ✅ TURNSTILE TEST (SUPER_ADMIN only)
   // ==========================================
   @Post('turnstile/test')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
   @HttpCode(HttpStatus.OK)
   async testTurnstileEvent(@Body() body: TurnstileTestDto) {
     if (!body?.personId) throw new BadRequestException('personId is required');
