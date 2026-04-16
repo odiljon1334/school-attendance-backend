@@ -1,10 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import archiver from 'archiver';
 import sharp from 'sharp';
+
+// ─── Hikvision terminal face-photo requirements ───────────────────────────────
+// Min 200×200, recommended 400-600px, JPG < 200 KB
+// 500×500 @ 72% ≈ 25-50 KB — optimal: kichik hajm, yuqori sifat
+const FACE_SIZE    = 500;
+const FACE_QUALITY = 72;
+
+// ─── Uploads root (http → local shortcut) ────────────────────────────────────
+// Photos ko'pincha "http://host:3001/uploads/..." formatida saqlanadi.
+// Server o'ziga HTTP request yubormaslik uchun to'g'ridan-to'g'ri diskdan o'qiymiz.
+const UPLOADS_ROOT = path.join(process.cwd(), 'uploads');
 
 type PersonRow = {
   id: string;
@@ -21,110 +33,150 @@ export class EnrollPicService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  private buildEnrollNumber(prefix: '20' | '30', seq: number) {
-    const yy = String(new Date().getFullYear()).slice(-2); // "26"
-    // 001..999 (kerak bo'lsa 4 xonaga o'tib ketadi)
-    const seqStr = String(seq).padStart(3, '0');
-    return `${prefix}${yy}${seqStr}`; // masalan: 20 26 001 => 2026001
+  // ─────────────────────────────────────────────────────────────────────────────
+  // ENROLL NUMBER HELPERS
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  private buildEnrollNumber(prefix: '20' | '30', seq: number): string {
+    const yy = String(new Date().getFullYear()).slice(-2);
+    return `${prefix}${yy}${String(seq).padStart(3, '0')}`;
   }
 
   private async nextEnrollNumber(
     tx: Prisma.TransactionClient,
     schoolId: string,
-    kind: 'student' | 'staff', // staff = teacher + director
+    kind: 'student' | 'staff',
   ): Promise<string> {
-    // row bo'lmasa yaratadi
     await tx.enrollCounter.upsert({
       where: { schoolId },
       create: { schoolId },
       update: {},
     });
-  
+
     if (kind === 'student') {
-      const updated = await tx.enrollCounter.update({
+      const u = await tx.enrollCounter.update({
         where: { schoolId },
         data: { studentSeq: { increment: 1 } },
         select: { studentSeq: true },
       });
-      return this.buildEnrollNumber('20', updated.studentSeq);
+      return this.buildEnrollNumber('20', u.studentSeq);
     }
-  
-    const updated = await tx.enrollCounter.update({
+
+    const u = await tx.enrollCounter.update({
       where: { schoolId },
       data: { staffSeq: { increment: 1 } },
       select: { staffSeq: true },
     });
-    return this.buildEnrollNumber('30', updated.staffSeq);
-  }
-
-  // =========================
-  // ✅ EMPLOYEE NO GENERATOR
-  // =========================
-  private async nextEmployeeNo(tx: PrismaService): Promise<string> {
-    const rows = await tx.$queryRawUnsafe<Array<{ n: bigint | number | string }>>(
-      `SELECT nextval('employee_no_seq') as n`,
-    );
-
-    const n = rows?.[0]?.n;
-    if (n === null || n === undefined) throw new Error('Failed to generate next employeeNo');
-
-    return String(n);
+    return this.buildEnrollNumber('30', u.staffSeq);
   }
 
   private normalizeEmployeeNo(v?: string | null): string {
     const s = String(v || '').trim();
-    if (!/^\d+$/.test(s)) return '';
-    return s;
+    return /^\d+$/.test(s) ? s : '';
   }
 
-  /**
-   * ✅ ensure enrollNumber exists for each person that will be exported
-   * - students: update enrollNumber if missing
-   * - teachers: update enrollNumber if missing
-   */
   private async ensureEnrollNumbers(
-  schoolId: string,
-  rows: PersonRow[],
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  const missing: PersonRow[] = [];
+    schoolId: string,
+    rows: PersonRow[],
+  ): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const missing: PersonRow[] = [];
 
-  for (const r of rows) {
-    const emp = this.normalizeEmployeeNo(r.enrollNumber);
-    if (emp) out.set(`${r.kind}:${r.id}`, emp);
-    else missing.push(r);
+    for (const r of rows) {
+      const emp = this.normalizeEmployeeNo(r.enrollNumber);
+      if (emp) out.set(`${r.kind}:${r.id}`, emp);
+      else missing.push(r);
+    }
+
+    if (missing.length === 0) return out;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const r of missing) {
+        const emp =
+          r.kind === 'student'
+            ? await this.nextEnrollNumber(tx, schoolId, 'student')
+            : await this.nextEnrollNumber(tx, schoolId, 'staff');
+
+        if (r.kind === 'student') {
+          await tx.student.update({ where: { id: r.id }, data: { enrollNumber: emp } });
+        } else {
+          await tx.teacher.update({ where: { id: r.id }, data: { enrollNumber: emp } });
+        }
+        out.set(`${r.kind}:${r.id}`, emp);
+      }
+    });
+
+    return out;
   }
 
-  if (missing.length === 0) return out;
-
-  await this.prisma.$transaction(async (tx) => {
-    for (const r of missing) {
-      const emp =
-        r.kind === 'student'
-          ? await this.nextEnrollNumber(tx, schoolId, 'student')
-          : await this.nextEnrollNumber(tx, schoolId, 'staff');
-
-      if (r.kind === 'student') {
-        await tx.student.update({ where: { id: r.id }, data: { enrollNumber: emp } });
-      } else {
-        await tx.teacher.update({ where: { id: r.id }, data: { enrollNumber: emp } });
-      }
-
-      out.set(`${r.kind}:${r.id}`, emp);
+  // ─────────────────────────────────────────────────────────────────────────────
+  // PHOTO: raw buffer extraction  (optimized: http:// → local disk)
+  // ─────────────────────────────────────────────────────────────────────────────
+  private async getRawBuffer(photoData: string): Promise<Buffer> {
+    // 1. base64 data-URI
+    if (photoData.startsWith('data:image')) {
+      return Buffer.from(
+        photoData.replace(/^data:image\/\w+;base64,/, ''),
+        'base64',
+      );
     }
-  });
 
-  return out;
-}
+    // 2. http / https URL → local shortcut first, then network fallback
+    if (photoData.startsWith('http')) {
+      // Extract everything after "/uploads/"
+      const uploadsIdx = photoData.indexOf('/uploads/');
+      if (uploadsIdx !== -1) {
+        const rel      = photoData.slice(uploadsIdx + '/uploads/'.length);
+        const localPath = path.join(UPLOADS_ROOT, rel);
+        if (fs.existsSync(localPath)) {
+          return fsp.readFile(localPath);      // disk — ~1ms, no HTTP!
+        }
+      }
+      // Fallback: real HTTP request (external CDN, etc.)
+      const res = await fetch(photoData, { signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status} fetching photo`);
+      return Buffer.from(await res.arrayBuffer());
+    }
 
-  // =========================
-  // ✅ PARALLEL PHOTO PROCESSOR
-  // =========================
+    // 3. Absolute / relative local path
+    if (fs.existsSync(photoData)) {
+      return fsp.readFile(photoData);
+    }
+
+    // 4. Bare base64 fallback
+    const buf = Buffer.from(photoData, 'base64');
+    if (buf.length <= 10) throw new Error(`Cannot decode photo (length=${buf.length})`);
+    return buf;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // PHOTO: process + save  (single-pass sharp — no double decode)
+  // ─────────────────────────────────────────────────────────────────────────────
+  private async savePhoto(photoData: string, outputPath: string): Promise<void> {
+    const raw = await this.getRawBuffer(photoData);
+
+    // Single sharp pipeline:
+    //  .rotate()            — auto-corrects EXIF orientation (no-op if no EXIF)
+    //  .resize(500,500)     — cover crop, centre
+    //  .jpeg({quality:72})  — Hikvision face terminal optimal
+    //
+    // Note: landscape-without-EXIF will be centre-cropped (face stays visible).
+    // Separate metadata() call removed → saves one full buffer decode per photo.
+    await sharp(raw)
+      .rotate()
+      .resize(FACE_SIZE, FACE_SIZE, { fit: 'cover', position: 'centre' })
+      .jpeg({ quality: FACE_QUALITY, mozjpeg: false })
+      .toFile(outputPath);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // PARALLEL PHOTO PROCESSOR  (concurrency=20)
+  // ─────────────────────────────────────────────────────────────────────────────
   private async processPhotosParallel(
     rows: PersonRow[],
     empMap: Map<string, string>,
     outputDir: string,
-    concurrency = 12,
+    concurrency = 20,
   ): Promise<{ ok: number; failed: number }> {
     let ok = 0;
     let failed = 0;
@@ -133,81 +185,82 @@ export class EnrollPicService {
       const chunk = rows.slice(i, i + concurrency);
       const results = await Promise.allSettled(
         chunk.map(async (r) => {
-          const emp = empMap.get(`${r.kind}:${r.id}`) || '';
+          const emp = empMap.get(`${r.kind}:${r.id}`) ?? '';
           if (!emp) return;
           const fileName = `${emp}_2_0_${emp}_0.jpg`;
-          const filePath = path.join(outputDir, fileName);
-          await this.savePhoto(r.photo, filePath);
+          await this.savePhoto(r.photo, path.join(outputDir, fileName));
         }),
       );
       for (const res of results) {
         if (res.status === 'fulfilled') ok++;
         else {
           failed++;
-          this.logger.warn(`Photo failed: ${res.reason?.message}`);
+          this.logger.warn(`Photo failed: ${(res as any).reason?.message}`);
         }
       }
     }
     return { ok, failed };
   }
 
-  // =========================
-  // ✅ EXPORT SCHOOL
-  // =========================
+  // ─────────────────────────────────────────────────────────────────────────────
+  // EXPORT SCHOOL
+  // ─────────────────────────────────────────────────────────────────────────────
   async exportSchoolPhotos(schoolId: string): Promise<string> {
     const tempBase = path.join(process.cwd(), 'temp');
-    const tempDir  = path.join(tempBase, `enroll_pic_${schoolId}_${Date.now()}`);
+    const tempDir  = path.join(tempBase, `ep_${schoolId}_${Date.now()}`);
     fs.mkdirSync(tempDir, { recursive: true });
+
+    const t0 = Date.now();
 
     const [students, teachers] = await Promise.all([
       this.prisma.student.findMany({
-        where: { schoolId, photo: { not: null } },
+        where:  { schoolId, photo: { not: null } },
         select: { id: true, photo: true, firstName: true, lastName: true, enrollNumber: true },
       }),
       this.prisma.teacher.findMany({
-        where: { schoolId, photo: { not: null } },
+        where:  { schoolId, photo: { not: null } },
         select: { id: true, photo: true, firstName: true, lastName: true, enrollNumber: true },
       }),
     ]);
 
+    // Filter out empty strings
     const rows: PersonRow[] = [
-      ...students.map((s) => ({ ...s, kind: 'student' as const })),
-      ...teachers.map((t) => ({ ...t, kind: 'teacher' as const })),
+      ...students.filter(s => s.photo).map(s => ({ ...s, photo: s.photo!, kind: 'student' as const })),
+      ...teachers.filter(t => t.photo).map(t => ({ ...t, photo: t.photo!, kind: 'teacher' as const })),
     ];
 
     this.logger.log(`📸 Export start: ${rows.length} photos, school=${schoolId}`);
-    const t0 = Date.now();
 
-    const empMap = await this.ensureEnrollNumbers(schoolId, rows);
-    const { ok, failed } = await this.processPhotosParallel(rows, empMap, tempDir);
+    const empMap          = await this.ensureEnrollNumbers(schoolId, rows);
+    const { ok, failed }  = await this.processPhotosParallel(rows, empMap, tempDir);
 
-    const zipPath = path.join(tempBase, `enroll_pic_${schoolId}_${Date.now()}.zip`);
+    const zipPath = path.join(tempBase, `ep_${schoolId}_${Date.now()}.zip`);
     await this.createZip(tempDir, zipPath);
     fs.rmSync(tempDir, { recursive: true, force: true });
 
-    this.logger.log(
-      `✅ ZIP ready in ${((Date.now() - t0) / 1000).toFixed(1)}s — ok:${ok} failed:${failed}`,
-    );
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    const sizeMB  = (fs.statSync(zipPath).size / 1024 / 1024).toFixed(1);
+    this.logger.log(`✅ ZIP ready: ${sizeMB} MB in ${elapsed}s — ok:${ok} failed:${failed}`);
+
     return zipPath;
   }
 
-  // =========================
-  // ✅ EXPORT DISTRICT
-  // =========================
+  // ─────────────────────────────────────────────────────────────────────────────
+  // EXPORT DISTRICT
+  // ─────────────────────────────────────────────────────────────────────────────
   async exportDistrictPhotos(districtId: string): Promise<string> {
     const schools = await this.prisma.school.findMany({
-      where: { districtId },
+      where:  { districtId },
       select: { id: true, name: true },
     });
 
     const tempBase = path.join(process.cwd(), 'temp');
-    const rootDir  = path.join(tempBase, `enroll_pic_district_${districtId}_${Date.now()}`);
+    const rootDir  = path.join(tempBase, `ep_dist_${districtId}_${Date.now()}`);
     fs.mkdirSync(rootDir, { recursive: true });
 
     this.logger.log(`📸 District export: ${schools.length} schools`);
     const t0 = Date.now();
 
-    // Maktablarni parallel ishlaymiz (3 ta bir vaqtda)
     const SCHOOL_CONCURRENCY = 3;
     for (let i = 0; i < schools.length; i += SCHOOL_CONCURRENCY) {
       const chunk = schools.slice(i, i + SCHOOL_CONCURRENCY);
@@ -219,18 +272,18 @@ export class EnrollPicService {
 
           const [students, teachers] = await Promise.all([
             this.prisma.student.findMany({
-              where: { schoolId: school.id, photo: { not: null } },
+              where:  { schoolId: school.id, photo: { not: null } },
               select: { id: true, photo: true, firstName: true, lastName: true, enrollNumber: true },
             }),
             this.prisma.teacher.findMany({
-              where: { schoolId: school.id, photo: { not: null } },
+              where:  { schoolId: school.id, photo: { not: null } },
               select: { id: true, photo: true, firstName: true, lastName: true, enrollNumber: true },
             }),
           ]);
 
           const rows: PersonRow[] = [
-            ...students.map((s) => ({ ...s, kind: 'student' as const })),
-            ...teachers.map((t) => ({ ...t, kind: 'teacher' as const })),
+            ...students.filter(s => s.photo).map(s => ({ ...s, photo: s.photo!, kind: 'student' as const })),
+            ...teachers.filter(t => t.photo).map(t => ({ ...t, photo: t.photo!, kind: 'teacher' as const })),
           ];
           if (rows.length === 0) return;
 
@@ -240,25 +293,26 @@ export class EnrollPicService {
       );
     }
 
-    const zipPath = path.join(tempBase, `enroll_pic_district_${districtId}.zip`);
+    const zipPath = path.join(tempBase, `ep_dist_${districtId}.zip`);
     await this.createZip(rootDir, zipPath);
     fs.rmSync(rootDir, { recursive: true, force: true });
 
-    this.logger.log(`✅ District ZIP ready in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    const sizeMB  = (fs.statSync(zipPath).size / 1024 / 1024).toFixed(1);
+    this.logger.log(`✅ District ZIP ready: ${sizeMB} MB in ${elapsed}s`);
+
     return zipPath;
   }
 
-  // =========================
-  // ZIP — level:0 (STORE)
-  // JPEG fayllar allaqachon siqilgan,
-  // level:9 faqat CPU sarflaydi, hajmni kamaytirmaydi
-  // =========================
-  private async createZip(sourceDir: string, outPath: string): Promise<void> {
+  // ─────────────────────────────────────────────────────────────────────────────
+  // ZIP — level:0 (STORE)  JPEG fayllar allaqachon siqilgan
+  // ─────────────────────────────────────────────────────────────────────────────
+  private createZip(sourceDir: string, outPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const output  = fs.createWriteStream(outPath);
       const archive = archiver('zip', { zlib: { level: 0 } });
 
-      output.on('close', () => resolve());
+      output.on('close', resolve);
       output.on('error', reject);
       archive.on('error', reject);
 
@@ -266,65 +320,5 @@ export class EnrollPicService {
       archive.directory(sourceDir, 'enroll_pic');
       archive.finalize();
     });
-  }
-
-  // =========================
-  // PHOTO SAVE
-  // =========================
-  private async savePhoto(photoData: string, outputPath: string): Promise<void> {
-    let rawBuffer: Buffer;
-
-    // data:image;base64,...
-    if (photoData.startsWith('data:image')) {
-      const base64Data = photoData.replace(/^data:image\/\w+;base64,/, '');
-      rawBuffer = Buffer.from(base64Data, 'base64');
-
-    // http(s)
-    } else if (photoData.startsWith('http')) {
-      const response = await fetch(photoData);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch photo: ${response.status} ${response.statusText}`);
-      }
-      rawBuffer = Buffer.from(await response.arrayBuffer());
-
-    // local path
-    } else if (fs.existsSync(photoData)) {
-      rawBuffer = fs.readFileSync(photoData);
-
-    // fallback: pure base64
-    } else {
-      rawBuffer = Buffer.from(photoData, 'base64');
-      if (rawBuffer.length <= 10) {
-        throw new Error(`Unknown photo format for outputPath=${outputPath}`);
-      }
-    }
-
-    // Normalize for terminal: auto-rotate (EXIF), resize 600x600, JPEG ~85%
-    // 1) Metadata o'qiymiz — EXIF va o'lchamlarni bilib olamiz
-    const meta = await sharp(rawBuffer).metadata();
-
-    // 2) EXIF bor bo'lsa — .rotate() avtomatik tuzatadi
-    // EXIF yo'q + landscape (width > height) → face photo bo'lsa doim portrait bo'lishi kerak
-    //   shuning uchun 90° CW burish kerak (eng keng tarqalgan holat)
-    const isLandscape = (meta.width ?? 0) > (meta.height ?? 0);
-    const hasExif = !!meta.orientation;
-
-    let pipeline = sharp(rawBuffer);
-
-    if (hasExif) {
-      // EXIF bor → avtomatik to'g'ri buradi
-      pipeline = pipeline.rotate();
-    } else if (isLandscape) {
-      // EXIF yo'q + landscape → 90° CW
-      pipeline = pipeline.rotate(90);
-    }
-
-    await pipeline
-      .resize(600, 600, {
-        fit: 'cover',                        // kamera rasmi kabi square crop
-        position: 'centre',
-      })
-      .jpeg({ quality: 85 })
-      .toFile(outputPath);
   }
 }
