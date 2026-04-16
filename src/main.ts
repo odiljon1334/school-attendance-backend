@@ -61,9 +61,10 @@ async function bootstrap() {
 
   app.useGlobalGuards(new JwtAuthGuard());
 
-  // ✅ 2. Keyin JSON parser (limit oshirildi: 50mb — mobil rasm uchun)
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+  // ✅ 2. Keyin JSON parser
+  // 10mb — 400×400 JPEG base64 ~70KB, hatto 4K foto base64 ~8MB yetarli
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // ✅ 3. Eng oxirida ValidationPipe
   app.useGlobalPipes(

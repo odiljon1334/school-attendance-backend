@@ -278,7 +278,7 @@ export class StudentsService {
           }
         },
         attendances: { orderBy: { date: 'desc' }, take: 30 },
-        payments: { orderBy: { dueDate: 'desc' } },
+        payments: { orderBy: { dueDate: 'desc' }, take: 36 }, // 3 yil max
       },
     });
 
