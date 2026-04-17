@@ -83,7 +83,7 @@ export class PaymentsService {
     if (plan) where.plan = plan;
     if (periodKey) where.periodKey = periodKey;
 
-    const limit  = Math.min(params.limit  ?? 100, 500);
+    const limit  = Math.min(params.limit  ?? 2000, 5000);
     const offset = params.offset ?? 0;
 
     const [data, total] = await Promise.all([
