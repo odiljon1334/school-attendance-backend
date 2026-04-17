@@ -151,17 +151,36 @@ export class CsvImportService {
     }
   }
 
-        const created = await this.prisma.teacher.create({
-          data: {
-            schoolId,
-            firstName,
-            lastName,
-            phone: phone || undefined,
-            gender: gender ?? undefined,
-            type: 'TEACHER',
-            enrollNumber,
-          },
-        });
+        // Upsert: phone bo'lsa → phone bo'yicha, yo'q bo'lsa → ism+maktab bo'yicha
+        const existing = phone
+          ? await this.prisma.teacher.findFirst({ where: { phone, schoolId }, select: { id: true } })
+          : await this.prisma.teacher.findFirst({
+              where: { firstName, lastName, schoolId },
+              select: { id: true },
+            });
+
+        const created = existing
+          ? await this.prisma.teacher.update({
+              where: { id: existing.id },
+              data: {
+                firstName,
+                lastName,
+                phone: phone || undefined,
+                gender: gender ?? undefined,
+                enrollNumber: enrollNumber || undefined,
+              },
+            })
+          : await this.prisma.teacher.create({
+              data: {
+                schoolId,
+                firstName,
+                lastName,
+                phone: phone || undefined,
+                gender: gender ?? undefined,
+                type: 'TEACHER',
+                enrollNumber,
+              },
+            });
 
         // Turnstile identity (ixtiyoriy)
         const employeeNo = this.pick(row, ['employeeNo', 'EmployeeNo', 'ID']).toString().trim();
