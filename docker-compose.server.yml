@@ -37,15 +37,16 @@ services:
     image: redis:7-alpine
     container_name: school_redis
     restart: always
+    command: redis-server --maxmemory 220mb --maxmemory-policy allkeys-lru
     networks:
       - school_net
     deploy:
       resources:
         limits:
-          memory: 128M
+          memory: 256M
           cpus: '0.3'
         reservations:
-          memory: 32M
+          memory: 64M
 
   # ── Backend (NestJS) ────────────────────────────────────────────────────────
   backend:

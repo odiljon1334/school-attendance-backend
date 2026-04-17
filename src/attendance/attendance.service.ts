@@ -910,7 +910,18 @@ export class AttendanceService {
 
     const data = await this.prisma.attendance.findMany({
       where,
-      include: { student: true, teacher: true },
+      select: {
+        id: true,
+        studentId: true,
+        teacherId: true,
+        classId: true,
+        schoolId: true,
+        status: true,
+        date: true,
+        checkInTime: true,
+        student: { select: { id: true, firstName: true, lastName: true, photo: true, classId: true } },
+        teacher: { select: { id: true, firstName: true, lastName: true, photo: true, type: true } },
+      },
       orderBy: { checkInTime: 'asc' },
     });
 
