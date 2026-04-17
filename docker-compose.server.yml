@@ -48,6 +48,30 @@ services:
         reservations:
           memory: 64M
 
+  # ── MediaMTX (RTMP/RTSP → HLS) ─────────────────────────────────────────────
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: school_mediamtx
+    restart: always
+    ports:
+      - "1935:1935"   # RTMP  — kamera shu portga push qiladi
+      - "8554:8554"   # RTSP  — ixtiyoriy
+      - "8888:8888"   # HLS   — brauzer shu portdan ko'radi
+    environment:
+      MTX_PROTOCOLS: tcp
+      MTX_HLSSEGMENTCOUNT: "3"
+      MTX_HLSSEGMENTDURATION: "1s"
+      MTX_LOGLEVEL: warn
+    networks:
+      - school_net
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
+
   # ── Backend (NestJS) ────────────────────────────────────────────────────────
   backend:
     build:
@@ -67,6 +91,7 @@ services:
       NODE_ENV: production
       TZ: Asia/Tashkent
       NODE_OPTIONS: --max-old-space-size=512
+      MEDIAMTX_HLS_HOST: ${MEDIAMTX_HLS_HOST}
     depends_on:
       postgres:
         condition: service_healthy
