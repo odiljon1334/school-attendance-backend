@@ -286,6 +286,8 @@ model Teacher {
 
   @@unique([telegramId])
   @@unique([schoolId, enrollNumber])
+  @@index([schoolId])           // getAll(schoolId) uchun
+  @@index([schoolId, type])     // findAll(schoolId, type) uchun
   @@index([facePersonId])
   @@index([type])
 }

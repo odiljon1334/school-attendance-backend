@@ -63,12 +63,21 @@ export class TeachersController {
     @Req() req: Request,
     @Query('schoolId') schoolId?: string,
     @Query('type') type?: 'TEACHER' | 'DIRECTOR',
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('search') search?: string,
   ) {
     const user = (req as any).user;
     const restrictedRoles = [UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR, UserRole.TEACHER];
     const isRestricted = (user?.role && restrictedRoles.includes(user.role)) || (!user?.role && user?.schoolId);
     if (isRestricted) schoolId = user.schoolId;
-    return this.teachersService.findAll(schoolId, type);
+    return this.teachersService.findAll(
+      schoolId,
+      type,
+      limit  ? Math.min(parseInt(limit,  10), 300) : 100,
+      offset ? parseInt(offset, 10) : 0,
+      search,
+    );
   }
 
   // ==========================================

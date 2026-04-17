@@ -179,61 +179,95 @@ export class TeachersService {
   async getAll(schoolId: string) {
     return this.prisma.teacher.findMany({
       where: { schoolId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        teacherClasses: { include: { class: true } },
+      orderBy: { lastName: 'asc' },
+      take: 500, // safety cap
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        photo: true,
+        gender: true,
+        type: true,
+        enrollNumber: true,
+        subjects: true,
+        teacherClasses: {
+          select: {
+            class: { select: { id: true, grade: true, section: true } },
+          },
+        },
       },
     });
   }
 
-
   // ==========================================
-  // ✅ FIND ALL - WITH TYPE FILTER
+  // ✅ FIND ALL - paginated, lightweight
   // ==========================================
-  async findAll(schoolId?: string, type?: 'TEACHER' | 'DIRECTOR') {
+  async findAll(
+    schoolId?: string,
+    type?: 'TEACHER' | 'DIRECTOR',
+    limit = 100,
+    offset = 0,
+    search?: string,
+  ) {
     const where: any = {};
-
-    if (schoolId) {
-      where.schoolId = schoolId;
+    if (schoolId) where.schoolId = schoolId;
+    if (type)     where.type     = type;
+    if (search) {
+      const q = search.trim();
+      where.OR = [
+        { firstName: { contains: q, mode: 'insensitive' } },
+        { lastName:  { contains: q, mode: 'insensitive' } },
+        { phone:     { contains: q, mode: 'insensitive' } },
+      ];
     }
 
-    if (type) {
-      where.type = type;
-    }
+    const take = Math.min(limit, 300);
 
-    return this.prisma.teacher.findMany({
-      where,
-      include: {
-        school: true,
-        teacherClasses: {
-          include: {
-            class: true,
+    const [data, total] = await Promise.all([
+      this.prisma.teacher.findMany({
+        where,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          phone: true,
+          photo: true,
+          gender: true,
+          type: true,
+          enrollNumber: true,
+          subjects: true,
+          schoolId: true,
+          teacherClasses: {
+            select: {
+              class: { select: { id: true, grade: true, section: true } },
+            },
           },
         },
-        _count: {
-          select: {
-            attendances: true,
-          },
-        },
-      },
-      orderBy: {
-        lastName: 'asc',
-      },
-    });
+        orderBy: { lastName: 'asc' },
+        take,
+        skip: offset,
+      }),
+      this.prisma.teacher.count({ where }),
+    ]);
+
+    return { data, total, limit: take, offset };
   }
 
   // ==========================================
   // ✅ FIND DIRECTORS (helper)
   // ==========================================
   async findDirectors(schoolId?: string) {
-    return this.findAll(schoolId, 'DIRECTOR');
+    const res = await this.findAll(schoolId, 'DIRECTOR', 300, 0);
+    return res.data;
   }
 
   // ==========================================
   // ✅ FIND TEACHERS (helper)
   // ==========================================
   async findTeachers(schoolId?: string) {
-    return this.findAll(schoolId, 'TEACHER');
+    const res = await this.findAll(schoolId, 'TEACHER', 300, 0);
+    return res.data;
   }
 
   // ==========================================
