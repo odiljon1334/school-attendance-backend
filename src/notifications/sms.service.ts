@@ -30,6 +30,10 @@ export class SmsService {
   // ✅ MAIN: Send SMS (with Rate Limiting)
   // ==========================================
   async sendSms(phoneNumber: string, message: string, opts?: { type?: string; limitPerMin?: number }): Promise<boolean> {
+    // SMS O'CHIRILGAN — faqat WhatsApp orqali yuboriladi
+    this.logger.log(`SMS disabled (WhatsApp-only mode). Skipped: ${phoneNumber}`);
+    return false;
+
     const type = opts?.type ?? 'GENERIC';
     const limit = opts?.limitPerMin ?? 3;
 
