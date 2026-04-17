@@ -224,50 +224,43 @@ export class TeachersService {
 
     const take = Math.min(limit, 300);
 
-    const [data, total] = await Promise.all([
-      this.prisma.teacher.findMany({
-        where,
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          phone: true,
-          photo: true,
-          gender: true,
-          type: true,
-          enrollNumber: true,
-          subjects: true,
-          schoolId: true,
-          teacherClasses: {
-            select: {
-              class: { select: { id: true, grade: true, section: true } },
-            },
+    return this.prisma.teacher.findMany({
+      where,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        photo: true,
+        gender: true,
+        type: true,
+        enrollNumber: true,
+        subjects: true,
+        schoolId: true,
+        teacherClasses: {
+          select: {
+            class: { select: { id: true, grade: true, section: true } },
           },
         },
-        orderBy: { lastName: 'asc' },
-        take,
-        skip: offset,
-      }),
-      this.prisma.teacher.count({ where }),
-    ]);
-
-    return { data, total, limit: take, offset };
+      },
+      orderBy: { lastName: 'asc' },
+      take,
+      skip: offset,
+    });
   }
 
   // ==========================================
   // ✅ FIND DIRECTORS (helper)
   // ==========================================
   async findDirectors(schoolId?: string) {
-    const res = await this.findAll(schoolId, 'DIRECTOR', 300, 0);
-    return res.data;
+    return this.findAll(schoolId, 'DIRECTOR', 300, 0);
   }
 
   // ==========================================
   // ✅ FIND TEACHERS (helper)
   // ==========================================
   async findTeachers(schoolId?: string) {
-    const res = await this.findAll(schoolId, 'TEACHER', 300, 0);
-    return res.data;
+    return this.findAll(schoolId, 'TEACHER', 300, 0);
   }
 
   // ==========================================
