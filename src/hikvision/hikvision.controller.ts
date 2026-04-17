@@ -172,7 +172,9 @@ export class HikvisionController {
   @Post('webhook/face-recognition')
   @HttpCode(HttpStatus.OK)
   async handleFaceRecognitionWebhook(@Req() req: Request) {
-    await this.verifyWebhook(req);
+    // TODO: Terminal apparatlarni sozlagandan keyin quyidagi qatorni ochamiz:
+    // await this.verifyWebhook(req);
+    this.logger.log(`Webhook received from ${req.ip} [verification disabled]`);
 
     const ct = String(req.headers['content-type'] || '');
     const body = req.body as Buffer;
