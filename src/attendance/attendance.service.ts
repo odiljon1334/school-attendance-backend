@@ -914,7 +914,6 @@ export class AttendanceService {
         id: true,
         studentId: true,
         teacherId: true,
-        classId: true,
         schoolId: true,
         status: true,
         date: true,
