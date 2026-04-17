@@ -48,127 +48,118 @@ export class AbsentDaysCron {
     const dayEnd = new Date(schoolDays[schoolDays.length - 1]);
     dayEnd.setHours(23, 59, 59, 999);
 
-    // Faqat rasmi bor studentlar — rasmsiz studentlarga xabar yuborilmaydi
-    const students = await this.prisma.student.findMany({
-      where: { photo: { not: null } },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        photo: true,
-        schoolId: true,
-        isSmsEnabled: true,
-        phone: true,
-        parents: {
-          include: {
-            parent: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                phone: true,
-                isTelegramActive: true,
-                telegramChatId: true,
-                isWhatsappActive: true,
-                whatsappPhone: true,
+    const schoolDayKeys = schoolDays.map((d) => d.toISOString().slice(0, 10));
+    const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
+
+    // Batch bo'lib o'qiymiz — 1500+ studentni bir vaqtda yuklamaslik uchun
+    const BATCH = 200;
+    let cursor = 0;
+    let notified = 0;
+
+    while (true) {
+      const students = await this.prisma.student.findMany({
+        where: { photo: { not: null } },
+        skip: cursor,
+        take: BATCH,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          schoolId: true,
+          isSmsEnabled: true,
+          parents: {
+            include: {
+              parent: {
+                select: {
+                  phone: true,
+                  isTelegramActive: true,
+                  telegramChatId: true,
+                  isWhatsappActive: true,
+                  whatsappPhone: true,
+                },
               },
             },
           },
         },
-      },
-    });
+      });
 
-    if (!students.length) return;
+      if (!students.length) break;
+      cursor += students.length;
 
-    // Shu 3 kun ichida kelgan studentlar (attendance record bor)
-    const attendanceRecords = await this.prisma.attendance.findMany({
-      where: {
-        studentId: { in: students.map((s) => s.id) },
-        date: { gte: dayStart, lte: dayEnd },
-      },
-      select: { studentId: true, date: true },
-    });
+      // Bu batch uchun attendance recordlarini bir so'rovda olamiz
+      const attendanceRecords = await this.prisma.attendance.findMany({
+        where: {
+          studentId: { in: students.map((s) => s.id) },
+          date: { gte: dayStart, lte: dayEnd },
+        },
+        select: { studentId: true, date: true },
+      });
 
-    // Qaysi kunlarda kelgan: studentId → Set<YYYY-MM-DD>
-    const presentDays = new Map<string, Set<string>>();
-    for (const r of attendanceRecords) {
-      const key = r.date.toISOString().slice(0, 10);
-      if (!presentDays.has(r.studentId)) presentDays.set(r.studentId, new Set());
-      presentDays.get(r.studentId)!.add(key);
-    }
-
-    const schoolDayKeys = schoolDays.map((d) => d.toISOString().slice(0, 10));
-
-    let notified = 0;
-
-    for (const student of students) {
-      const present = presentDays.get(student.id);
-
-      // Agar 3 maktab kunining birortasida ham kelmagan bo'lsa
-      const allAbsent = schoolDayKeys.every((dk) => !present?.has(dk));
-      if (!allAbsent) continue;
-
-      // Redis cooldown: bir kunda bir marta yuborilsin
-      // (soddalik uchun DB ga yozamiz — Redis bo'lmasa ham ishlaydi)
-      const alreadyNotified = await this.prisma.auditLog
-        .findFirst({
-          where: {
-            action: 'ABSENT_3DAYS_NOTIF',
-            entityId: student.id,
-            createdAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
-          },
-        })
-        .catch(() => null);
-
-      if (alreadyNotified) continue;
-
-      const parents = student.parents.map((sp) => sp.parent).filter(Boolean);
-      if (!parents.length) continue;
-
-      const studentName = `${student.firstName} ${student.lastName}`;
-      const message =
-        `❗ Уважаемый(ая) родитель!\n\n` +
-        `Ваш ребёнок *${studentName}* не посещает школу уже ${ABSENT_DAYS_THRESHOLD} дня подряд.\n\n` +
-        `Пожалуйста, свяжитесь с директором школы или классным руководителем и объясните причину отсутствия.\n\n` +
-        `Администрация школы.`;
-
-      for (const parent of parents) {
-        try {
-          if (parent.isWhatsappActive && parent.whatsappPhone) {
-            await this.wa.sendText(parent.whatsappPhone, message);
-            this.logger.log(`📱 Absent-3days WA → ${parent.whatsappPhone} (${studentName})`);
-          }
-
-          if (parent.isTelegramActive && parent.telegramChatId) {
-            await this.telegram.sendMessage(parent.telegramChatId, message.replace(/\*/g, ''));
-            this.logger.log(`📱 Absent-3days TG → ${parent.telegramChatId} (${studentName})`);
-          }
-
-          // SMS faqat WhatsApp ulangan bo'lmagan ota-onalarga
-          if (parent.phone && student.isSmsEnabled && !parent.isWhatsappActive) {
-            const smsMsg =
-              `Уважаемый(ая) родитель! Ваш ребёнок ${studentName} не посещает школу ` +
-              `${ABSENT_DAYS_THRESHOLD} дня подряд. Свяжитесь с директором или классным руководителем.`;
-            await this.sms.sendSms(parent.phone, smsMsg);
-            this.logger.log(`📱 Absent-3days SMS → ${parent.phone} (${studentName})`);
-          }
-        } catch (err: any) {
-          this.logger.error(`Absent-3days notif error (${studentName}): ${err?.message}`);
-        }
+      const presentDays = new Map<string, Set<string>>();
+      for (const r of attendanceRecords) {
+        const key = r.date.toISOString().slice(0, 10);
+        if (!presentDays.has(r.studentId)) presentDays.set(r.studentId, new Set());
+        presentDays.get(r.studentId)!.add(key);
       }
 
-      // Log qilib qo'yamiz — qayta yuborilmasin
-      await this.prisma.auditLog.create({
-        data: {
-          action: 'ABSENT_3DAYS_NOTIF',
-          entity: 'Student',
-          entityId: student.id,
-          schoolId: student.schoolId,
-          details: { studentName, schoolDays: schoolDayKeys },
-        },
-      }).catch(() => {});
+      for (const student of students) {
+        const present = presentDays.get(student.id);
+        const allAbsent = schoolDayKeys.every((dk) => !present?.has(dk));
+        if (!allAbsent) continue;
 
-      notified++;
+        const alreadyNotified = await this.prisma.auditLog
+          .findFirst({
+            where: {
+              action: 'ABSENT_3DAYS_NOTIF',
+              entityId: student.id,
+              createdAt: { gte: todayStart },
+            },
+          })
+          .catch(() => null);
+        if (alreadyNotified) continue;
+
+        const parents = student.parents.map((sp) => sp.parent).filter(Boolean);
+        if (!parents.length) continue;
+
+        const studentName = `${student.firstName} ${student.lastName}`;
+        const message =
+          `❗ Уважаемый(ая) родитель!\n\n` +
+          `Ваш ребёнок *${studentName}* не посещает школу уже ${ABSENT_DAYS_THRESHOLD} дня подряд.\n\n` +
+          `Пожалуйста, свяжитесь с директором школы или классным руководителем и объясните причину отсутствия.\n\n` +
+          `Администрация школы.`;
+
+        for (const parent of parents) {
+          try {
+            if (parent.isWhatsappActive && parent.whatsappPhone) {
+              await this.wa.sendText(parent.whatsappPhone, message);
+            }
+            if (parent.isTelegramActive && parent.telegramChatId) {
+              await this.telegram.sendMessage(parent.telegramChatId, message.replace(/\*/g, ''));
+            }
+            if (parent.phone && student.isSmsEnabled && !parent.isWhatsappActive) {
+              const smsMsg = `Уважаемый(ая) родитель! Ваш ребёнок ${studentName} не посещает школу ${ABSENT_DAYS_THRESHOLD} дня подряд. Свяжитесь с директором или классным руководителем.`;
+              await this.sms.sendSms(parent.phone, smsMsg);
+            }
+          } catch (err: any) {
+            this.logger.error(`Absent-3days notif error (${studentName}): ${err?.message}`);
+          }
+        }
+
+        await this.prisma.auditLog.create({
+          data: {
+            action: 'ABSENT_3DAYS_NOTIF',
+            entity: 'Student',
+            entityId: student.id,
+            schoolId: student.schoolId,
+            details: { studentName, schoolDays: schoolDayKeys },
+          },
+        }).catch(() => {});
+
+        notified++;
+      }
+
+      // Batchlar orasida CPU ga nafas berish
+      if (cursor % (BATCH * 3) === 0) await new Promise(r => setTimeout(r, 100));
     }
 
     this.logger.log(`✅ Absent-days cron done: ${notified} students notified`);
