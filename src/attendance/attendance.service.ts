@@ -1118,15 +1118,15 @@ export class AttendanceService {
 
     // Single date filter
     if (date) {
-      const d = new Date(date);
-      const start = new Date(d); start.setHours(0, 0, 0, 0);
-      const end   = new Date(d); end.setHours(23, 59, 59, 999);
+      // Server TZ (Asia/Tashkent) da local midnight ishlatamiz
+      const start = new Date(`${date}T00:00:00`);
+      const end   = new Date(`${date}T23:59:59.999`);
       where.date = { gte: start, lte: end };
     // Date range filter (history page)
     } else if (startDate || endDate) {
-      const start = startDate ? new Date(startDate) : new Date('1970-01-01');
-      const end   = endDate   ? new Date(endDate)   : new Date();
-      end.setHours(23, 59, 59, 999);
+      // "2026-04-17" → server local midnight (Toshkent = UTC+5), UTC midnight emas
+      const start = startDate ? new Date(`${startDate}T00:00:00`)       : new Date('1970-01-01');
+      const end   = endDate   ? new Date(`${endDate}T23:59:59.999`) : new Date();
       where.date = { gte: start, lte: end };
     }
 
@@ -1199,5 +1199,29 @@ export class AttendanceService {
     }
 
     return { message: 'Attendance deleted successfully' };
+  }
+
+  // ── Bugungi LATE → PRESENT (terminal kech ishga tushgan kun uchun) ───────────
+  async fixLateToPresent(schoolId: string, dateStr?: string) {
+    const target = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
+    target.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(target);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const result = await this.prisma.attendance.updateMany({
+      where: {
+        schoolId,
+        status: 'LATE',
+        date: { gte: target, lte: dayEnd },
+      },
+      data: {
+        status: 'PRESENT',
+        lateMinutes: 0,
+        lateCount: 0,
+      },
+    });
+
+    this.logger.log(`✅ fix-late: ${result.count} records LATE→PRESENT for school ${schoolId}`);
+    return { updated: result.count, date: target.toISOString().slice(0, 10) };
   }
 }

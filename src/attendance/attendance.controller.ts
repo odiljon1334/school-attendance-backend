@@ -231,4 +231,13 @@ export class AttendanceController {
   remove(@Param('id') id: string) {
     return this.attendanceService.remove(id);
   }
+
+  // ── Bugungi LATE → PRESENT tuzatish (terminal kech ishga tushganda) ─────────
+  @Patch('fix-late/:schoolId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR)
+  @HttpCode(HttpStatus.OK)
+  fixLateToday(@Param('schoolId') schoolId: string, @Query('date') date?: string) {
+    return this.attendanceService.fixLateToPresent(schoolId, date);
+  }
 }
