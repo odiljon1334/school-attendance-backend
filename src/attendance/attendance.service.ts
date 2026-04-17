@@ -918,8 +918,8 @@ export class AttendanceService {
         status: true,
         date: true,
         checkInTime: true,
-        student: { select: { id: true, firstName: true, lastName: true, photo: true, classId: true } },
-        teacher: { select: { id: true, firstName: true, lastName: true, photo: true, type: true } },
+        student: { select: { id: true, firstName: true, lastName: true, classId: true } },
+        teacher: { select: { id: true, firstName: true, lastName: true, type: true } },
       },
       orderBy: { checkInTime: 'asc' },
     });

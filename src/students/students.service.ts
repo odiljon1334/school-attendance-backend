@@ -593,17 +593,29 @@ export class StudentsService {
   }
 
   async getPhotoStatus(schoolId: string) {
-    const students = await this.prisma.student.findMany({
-      where: { schoolId },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        photo: true,
-        class: { select: { id: true, grade: true, section: true } },
-      },
-      orderBy: [{ class: { grade: 'asc' } }, { lastName: 'asc' }],
-    });
+    const cacheKey = `photo-status:${schoolId}`;
+    const cached = await this.redis.getCache(cacheKey);
+    if (cached) return cached;
+
+    // photo maʼlumotini yuklamasdan ikkita yengil query
+    const [allStudents, studentsWithPhoto] = await Promise.all([
+      this.prisma.student.findMany({
+        where: { schoolId },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          class: { select: { id: true, grade: true, section: true } },
+        },
+        orderBy: [{ class: { grade: 'asc' } }, { lastName: 'asc' }],
+      }),
+      this.prisma.student.findMany({
+        where: { schoolId, photo: { not: null } },
+        select: { id: true },
+      }),
+    ]);
+
+    const photoSet = new Set(studentsWithPhoto.map((s) => s.id));
 
     const classMap = new Map<string, {
       classId: string;
@@ -614,7 +626,7 @@ export class StudentsService {
       studentsWithoutPhoto: { id: string; name: string }[];
     }>();
 
-    for (const s of students) {
+    for (const s of allStudents) {
       const classId = s.class?.id ?? 'NO_CLASS';
       const className = s.class ? `${s.class.grade}-${s.class.section}` : 'Без класса';
 
@@ -624,7 +636,7 @@ export class StudentsService {
 
       const entry = classMap.get(classId)!;
       entry.total++;
-      if (s.photo) {
+      if (photoSet.has(s.id)) {
         entry.withPhoto++;
       } else {
         entry.withoutPhoto++;
@@ -633,10 +645,12 @@ export class StudentsService {
     }
 
     const classes = Array.from(classMap.values()).sort((a, b) => a.className.localeCompare(b.className));
-    const total = students.length;
-    const withPhoto = students.filter((s) => s.photo).length;
+    const total = allStudents.length;
+    const withPhoto = photoSet.size;
 
-    return { total, withPhoto, withoutPhoto: total - withPhoto, classes };
+    const result = { total, withPhoto, withoutPhoto: total - withPhoto, classes };
+    await this.redis.setCache(cacheKey, result, 120); // 2 daqiqa cache
+    return result;
   }
 
   async syncPhotosToTurnstile(schoolId: string) {

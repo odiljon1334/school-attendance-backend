@@ -70,9 +70,12 @@ export class ClassesService {
     const classes = await this.prisma.class.findMany({
       where,
       include: {
-        school: true,
         _count: { select: { students: true } },
-        teacherClasses: { include: { teacher: true } },
+        teacherClasses: {
+          select: {
+            teacher: { select: { id: true, firstName: true, lastName: true } },
+          },
+        },
         students: { select: { id: true } },
       },
       orderBy: [{ grade: 'asc' }, { section: 'asc' }],
