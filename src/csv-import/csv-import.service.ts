@@ -140,47 +140,27 @@ export class CsvImportService {
           throw new Error('Обязательные поля отсутствуют: Имя, Фамилия');
         }
 
-        // enrollNumber duplicate check (agar bo'lsa)
-        if (enrollNumber) {
-        const existingEnroll = await this.prisma.teacher.findFirst({
-        where: { enrollNumber, schoolId },
-      });
+        // ✅ Duplicate check — student import kabi: firstName+lastName+schoolId mavjud bo'lsa o'tkazib ketamiz
+        const existing = await this.prisma.teacher.findFirst({
+          where: { firstName, lastName, schoolId },
+          select: { id: true },
+        });
+        if (existing) {
+          results.success++;
+          continue;
+        }
 
-      if (existingEnroll) {
-      throw new Error(`EnrollNumber ${enrollNumber} allaqachon mavjud`);
-    }
-  }
-
-        // Upsert: phone bo'lsa → phone bo'yicha, yo'q bo'lsa → ism+maktab bo'yicha
-        const existing = phone
-          ? await this.prisma.teacher.findFirst({ where: { phone, schoolId }, select: { id: true } })
-          : await this.prisma.teacher.findFirst({
-              where: { firstName, lastName, schoolId },
-              select: { id: true },
-            });
-
-        const created = existing
-          ? await this.prisma.teacher.update({
-              where: { id: existing.id },
-              data: {
-                firstName,
-                lastName,
-                phone: phone || undefined,
-                gender: gender ?? undefined,
-                enrollNumber: enrollNumber || undefined,
-              },
-            })
-          : await this.prisma.teacher.create({
-              data: {
-                schoolId,
-                firstName,
-                lastName,
-                phone: phone || undefined,
-                gender: gender ?? undefined,
-                type: 'TEACHER',
-                enrollNumber,
-              },
-            });
+        const created = await this.prisma.teacher.create({
+          data: {
+            schoolId,
+            firstName,
+            lastName,
+            phone: phone || undefined,
+            gender: gender ?? undefined,
+            type: 'TEACHER',
+            enrollNumber: enrollNumber || undefined,
+          },
+        });
 
         // Turnstile identity (ixtiyoriy)
         const employeeNo = this.pick(row, ['employeeNo', 'EmployeeNo', 'ID']).toString().trim();
