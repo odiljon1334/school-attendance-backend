@@ -1110,11 +1110,13 @@ export class AttendanceService {
     endDate?: string,
     limit = 500,
     offset = 0,
+    status?: string,
   ) {
     const where: any = {};
-    if (schoolId) where.schoolId = schoolId;
+    if (schoolId)  where.schoolId  = schoolId;
     if (studentId) where.studentId = studentId;
     if (teacherId) where.teacherId = teacherId;
+    if (status && status !== 'all') where.status = status;
 
     // Single date filter
     if (date) {

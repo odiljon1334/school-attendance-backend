@@ -173,6 +173,7 @@ export class AttendanceController {
     @Query('classId')    classId?: string,
     @Query('startDate')  startDate?: string,
     @Query('endDate')    endDate?: string,
+    @Query('status')     status?: string,
     @Query('limit')      limit?: string,
     @Query('offset')     offset?: string,
   ) {
@@ -186,6 +187,7 @@ export class AttendanceController {
       startDate, endDate,
       limit  ? Math.min(Number(limit),  1000) : 500,
       offset ? Number(offset) : 0,
+      status,
     );
   }
 
