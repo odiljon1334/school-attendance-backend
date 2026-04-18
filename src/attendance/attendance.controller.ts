@@ -58,6 +58,9 @@ export class AttendanceController {
       classId?: string;
       studentId?: string;
       teacherId?: string;
+      status?: string;
+      limit?: number;
+      offset?: number;
     },
   ) {
     return this.attendanceService.generateReport(dto);

@@ -44,31 +44,32 @@ export class AttendanceService {
     classId?: string;
     studentId?: string;
     teacherId?: string;
+    status?: string;
     limit?: number;
     offset?: number;
   }) {
-    const where: any = { schoolId: dto.schoolId };
+    const baseWhere: any = { schoolId: dto.schoolId };
 
-    if (dto.studentId) where.studentId = dto.studentId;
-    if (dto.teacherId) where.teacherId = dto.teacherId;
-
-    if (dto.classId) {
-      where.student = { classId: dto.classId };
-    }
+    if (dto.studentId) baseWhere.studentId = dto.studentId;
+    if (dto.teacherId) baseWhere.teacherId = dto.teacherId;
+    if (dto.classId)   baseWhere.student = { classId: dto.classId };
 
     if (dto.startDate || dto.endDate) {
       const start = dto.startDate ? new Date(dto.startDate) : new Date('1970-01-01');
-      const end = dto.endDate ? new Date(dto.endDate) : new Date();
+      const end   = dto.endDate   ? new Date(dto.endDate)   : new Date();
       end.setHours(23, 59, 59, 999);
-      where.date = { gte: start, lte: end };
+      baseWhere.date = { gte: start, lte: end };
     }
 
-    const limit  = Math.min(dto.limit  ?? 500, 1000); // max 1000 per request
+    // status filter — faqat records uchun, counts uchun emas
+    const recordWhere = dto.status ? { ...baseWhere, status: dto.status } : baseWhere;
+
+    const limit  = Math.min(dto.limit  ?? 500, 1000);
     const offset = dto.offset ?? 0;
 
-    const [records, total] = await Promise.all([
+    const [records, total, presentCount, lateCount, absentCount] = await Promise.all([
       this.prisma.attendance.findMany({
-        where,
+        where: recordWhere,
         orderBy: { date: 'desc' },
         take:  limit,
         skip:  offset,
@@ -77,10 +78,31 @@ export class AttendanceService {
           teacher: { select: { id: true, firstName: true, lastName: true, photo: true, type: true } },
         },
       }),
-      this.prisma.attendance.count({ where }),
+      this.prisma.attendance.count({ where: recordWhere }),
+      // Status counts — har doim baseWhere dan (filter olmagan)
+      this.prisma.attendance.count({ where: { ...baseWhere, status: 'PRESENT' } }),
+      this.prisma.attendance.count({ where: { ...baseWhere, status: 'LATE'    } }),
+      this.prisma.attendance.count({ where: { ...baseWhere, status: 'ABSENT'  } }),
     ]);
 
-    return { records, total, limit, offset };
+    // Photo-ni base64 prefix bilan qaytaramiz (frontend to'g'ri ko'rsatsin)
+    const safeRecords = records.map((r: any) => ({
+      ...r,
+      student: r.student ? {
+        ...r.student,
+        photo: r.student.photo
+          ? (r.student.photo.startsWith('data:') ? r.student.photo : `data:image/jpeg;base64,${r.student.photo}`)
+          : null,
+      } : null,
+      teacher: r.teacher ? {
+        ...r.teacher,
+        photo: r.teacher.photo
+          ? (r.teacher.photo.startsWith('data:') ? r.teacher.photo : `data:image/jpeg;base64,${r.teacher.photo}`)
+          : null,
+      } : null,
+    }));
+
+    return { records: safeRecords, total, limit, offset, presentCount, lateCount, absentCount };
   }
 
   // ======================================================
