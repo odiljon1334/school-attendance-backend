@@ -262,8 +262,27 @@ export class AttendanceService {
 
     const hour = now.getHours();
     const minute = now.getMinutes();
-    const isLate = hour > SCHOOL_START_HOUR || (hour === SCHOOL_START_HOUR && minute > 0);
-    const lateMinutes = isLate ? (hour - SCHOOL_START_HOUR) * 60 + minute : 0;
+    const nowTotalMinutes = hour * 60 + minute;
+
+    // ✅ Sinf shift va startTime ga qarab threshold aniqlaymiz
+    // shift=1 (ertalabki) yoki startTime="08:30" → 08:30 gacha PRESENT
+    // shift=2 (tushki/kechki) yoki startTime="13:00" → 13:00 gacha PRESENT
+    // Hech narsa belgilanmagan → 08:30 default (ertalabki smena)
+    let thresholdMinutes: number;
+    const classInfo = (person as any).class;
+
+    if (classInfo?.startTime) {
+      // "HH:MM" formatidan minutaga aylantirish
+      const [h, m] = classInfo.startTime.split(':').map(Number);
+      thresholdMinutes = h * 60 + (m || 0);
+    } else if (classInfo?.shift === 2) {
+      thresholdMinutes = 13 * 60; // 13:00 — tushki smena default
+    } else {
+      thresholdMinutes = 8 * 60 + 30; // 08:30 — ertalabki smena default
+    }
+
+    const isLate = nowTotalMinutes > thresholdMinutes;
+    const lateMinutes = isLate ? nowTotalMinutes - thresholdMinutes : 0;
 
     let attendance: any;
 
@@ -851,6 +870,7 @@ export class AttendanceService {
           where: { id },
           include: {
             school: true,
+            class: { select: { id: true, shift: true, startTime: true } },
             parents: { include: { parent: true } },
           },
         });
@@ -884,6 +904,7 @@ export class AttendanceService {
       where: { facePersonId },
       include: {
         school: true,
+        class: { select: { id: true, shift: true, startTime: true } },
         parents: { include: { parent: true } },
       },
     });
