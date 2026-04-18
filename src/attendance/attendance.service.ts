@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, Logger, Optional } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService } from '../notifications/telegram.service';
 import { SmsService } from '../notifications/sms.service';
@@ -264,25 +265,34 @@ export class AttendanceService {
     const minute = now.getMinutes();
     const nowTotalMinutes = hour * 60 + minute;
 
-    // ✅ Sinf shift va startTime ga qarab threshold aniqlaymiz
-    // shift=1 (ertalabki) yoki startTime="08:30" → 08:30 gacha PRESENT
-    // shift=2 (tushki/kechki) yoki startTime="13:00" → 13:00 gacha PRESENT
-    // Hech narsa belgilanmagan → 08:30 default (ertalabki smena)
-    let thresholdMinutes: number;
+    // ✅ Sinf shift va startTime ga qarab LATE hisoblash
+    // Qoida: agar student bo'lsa VA sinfda shift/startTime belgilanmagan bo'lsa
+    //        → har doim PRESENT (kech qolgan hisoblanmaydi)
+    // Agar shift yoki startTime belgilangan bo'lsa → shunga qarab hisoblash
+    // Teacher/Director → always PRESENT (shift tekshirilmaydi)
     const classInfo = (person as any).class;
+    const isStudent = person.type === 'STUDENT';
+    const hasShiftConfig = !!(classInfo?.shift || classInfo?.startTime);
 
-    if (classInfo?.startTime) {
-      // "HH:MM" formatidan minutaga aylantirish
-      const [h, m] = classInfo.startTime.split(':').map(Number);
-      thresholdMinutes = h * 60 + (m || 0);
-    } else if (classInfo?.shift === 2) {
-      thresholdMinutes = 13 * 60; // 13:00 — tushki smena default
-    } else {
-      thresholdMinutes = 8 * 60 + 30; // 08:30 — ertalabki smena default
+    let isLate = false;
+    let lateMinutes = 0;
+
+    if (isStudent && hasShiftConfig) {
+      // Shift yoki startTime belgilangan — aniq hisoblash
+      let thresholdMinutes: number;
+      if (classInfo.startTime) {
+        const [h, m] = (classInfo.startTime as string).split(':').map(Number);
+        thresholdMinutes = h * 60 + (m || 0);
+      } else if (classInfo.shift === 2) {
+        thresholdMinutes = 13 * 60; // 13:00 — tushki smena
+      } else {
+        thresholdMinutes = 8 * 60 + 30; // 08:30 — ertalabki smena (shift=1)
+      }
+      isLate = nowTotalMinutes > thresholdMinutes;
+      lateMinutes = isLate ? nowTotalMinutes - thresholdMinutes : 0;
     }
-
-    const isLate = nowTotalMinutes > thresholdMinutes;
-    const lateMinutes = isLate ? nowTotalMinutes - thresholdMinutes : 0;
+    // isStudent && !hasShiftConfig → isLate = false (PRESENT, smena yo'q)
+    // !isStudent (teacher/director) → isLate = false (PRESENT)
 
     let attendance: any;
 
@@ -1246,6 +1256,85 @@ export class AttendanceService {
     }
 
     return { message: 'Attendance deleted successfully' };
+  }
+
+  // ── Hafta kunlari (Du-Ju) kelmagan o'quvchilarni ABSENT qilib belgilash ─────
+  // Shanba (6) va Yakshanba (0) kunlari o'tkazib yuboriladi
+  async markDailyAbsent(schoolId?: string, dateStr?: string) {
+    const target = new Date();
+    if (dateStr) {
+      const [y, mo, d] = dateStr.split('-').map(Number);
+      target.setFullYear(y, mo - 1, d);
+    }
+    target.setHours(0, 0, 0, 0);
+
+    // Shanba (6) va Yakshanba (0) → o'tkazib yuborish
+    const dow = target.getDay();
+    if (dow === 0 || dow === 6) {
+      this.logger.log(`⏭ markDailyAbsent: skipped — weekend (${target.toDateString()})`);
+      return { skipped: true, reason: 'weekend', date: target.toISOString().slice(0, 10) };
+    }
+
+    const dayEnd = new Date(target);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    // Barcha maktablar yoki bitta maktab
+    const schools = schoolId
+      ? [{ id: schoolId }]
+      : await this.prisma.school.findMany({ select: { id: true } });
+
+    let totalCreated = 0;
+
+    for (const school of schools) {
+      // Barcha o'quvchilar
+      const students = await this.prisma.student.findMany({
+        where: { schoolId: school.id },
+        select: { id: true },
+      });
+      if (!students.length) continue;
+
+      // Bugun allaqachon record bor o'quvchilar
+      const existing = await this.prisma.attendance.findMany({
+        where: {
+          schoolId: school.id,
+          studentId: { not: null },
+          date: { gte: target, lte: dayEnd },
+        },
+        select: { studentId: true },
+      });
+      const existingIds = new Set(existing.map((a) => a.studentId));
+
+      // Kelmagan o'quvchilar
+      const absentStudents = students.filter((s) => !existingIds.has(s.id));
+      if (!absentStudents.length) continue;
+
+      await this.prisma.attendance.createMany({
+        data: absentStudents.map((s) => ({
+          schoolId: school.id,
+          studentId: s.id,
+          date: target,
+          status: 'ABSENT' as const,
+          lateMinutes: 0,
+          lateCount: 0,
+        })),
+        skipDuplicates: true,
+      });
+      totalCreated += absentStudents.length;
+
+      await this.invalidateDashboardCache(school.id);
+    }
+
+    this.logger.log(
+      `✅ markDailyAbsent: ${totalCreated} ABSENT records created for ${target.toISOString().slice(0, 10)}`,
+    );
+    return { created: totalCreated, date: target.toISOString().slice(0, 10) };
+  }
+
+  // Har kuni Du-Ju soat 19:00 KGT (13:00 UTC) — avtomatik ABSENT belgilash
+  @Cron('0 0 13 * * 1-5')
+  async dailyAbsentCron() {
+    this.logger.log('🕐 Daily absent cron triggered...');
+    await this.markDailyAbsent();
   }
 
   // ── Bugungi LATE → PRESENT (terminal kech ishga tushgan kun uchun) ───────────

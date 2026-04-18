@@ -245,4 +245,15 @@ export class AttendanceController {
   fixLateToday(@Param('schoolId') schoolId: string, @Query('date') date?: string) {
     return this.attendanceService.fixLateToPresent(schoolId, date);
   }
+
+  // ── Kelmagan o'quvchilarni ABSENT qilish (qo'lda trigger) ────────────────────
+  @Post('mark-absent')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR)
+  @HttpCode(HttpStatus.OK)
+  markAbsent(
+    @Body() body: { schoolId?: string; date?: string },
+  ) {
+    return this.attendanceService.markDailyAbsent(body.schoolId, body.date);
+  }
 }
