@@ -961,6 +961,8 @@ export class AttendanceService {
         status: true,
         date: true,
         checkInTime: true,
+        checkOutTime: true,
+        lateMinutes: true,
         student: { select: { id: true, firstName: true, lastName: true, classId: true } },
         teacher: { select: { id: true, firstName: true, lastName: true, type: true } },
       },
