@@ -14,7 +14,11 @@ import { AttendanceGateway } from './attendance.gateway';
 const MIN_CHECKOUT_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 soat (checkout uchun)
 const RE_ENTRY_GRACE_MS = 10 * 60 * 1000; // 10 daqiqa
 const ABSENT_THRESHOLD_MIN = 6 * 60; // 360 daqiqa = 6 soat
-const SCHOOL_START_HOUR = 8; // 09:00
+// Server TZ = Asia/Tashkent (UTC+5), maktab Bishkekda (UTC+6)
+// Maktab: 08:00 Bishkek, kech qolish chegarasi: 08:30 Bishkek
+// 08:30 Bishkek (UTC+6) = 07:30 Toshkent (UTC+5)
+const SCHOOL_START_HOUR = 7;    // 08:00 Bishkek = 07:00 Toshkent
+const LATE_GRACE_MINUTES = 30;  // +30 daqiqa grace → 08:30 Bishkek = LATE chegarasi
 const NOTIF_COOLDOWN_MS = 2 * 60 * 60 * 1000; // 2 soat xabar cheklash!
 
 type PersonType = 'STUDENT' | 'TEACHER' | 'DIRECTOR';
@@ -277,22 +281,29 @@ export class AttendanceService {
     let isLate = false;
     let lateMinutes = 0;
 
-    if (isStudent && hasShiftConfig) {
-      // Shift yoki startTime belgilangan — aniq hisoblash
+    if (isStudent) {
       let thresholdMinutes: number;
-      if (classInfo.startTime) {
-        const [h, m] = (classInfo.startTime as string).split(':').map(Number);
-        thresholdMinutes = h * 60 + (m || 0);
-      } else if (classInfo.shift === 2) {
-        thresholdMinutes = 13 * 60; // 13:00 — tushki smena
+
+      if (hasShiftConfig) {
+        // Sinf konfiguratsiyasi bor — aniq hisoblash
+        if (classInfo.startTime) {
+          const [h, m] = (classInfo.startTime as string).split(':').map(Number);
+          thresholdMinutes = h * 60 + (m || 0);
+        } else if (classInfo.shift === 2) {
+          thresholdMinutes = 13 * 60; // 13:00 — tushki smena
+        } else {
+          thresholdMinutes = 8 * 60 + 30; // 08:30 — ertalabki smena (shift=1)
+        }
       } else {
-        thresholdMinutes = 8 * 60 + 30; // 08:30 — ertalabki smena (shift=1)
+        // Sinf konfiguratsiyasi yo'q — global chegara
+        // 08:30 Bishkek (UTC+6) = 07:30 Toshkent (UTC+5)
+        thresholdMinutes = SCHOOL_START_HOUR * 60 + LATE_GRACE_MINUTES;
       }
+
       isLate = nowTotalMinutes > thresholdMinutes;
       lateMinutes = isLate ? nowTotalMinutes - thresholdMinutes : 0;
     }
-    // isStudent && !hasShiftConfig → isLate = false (PRESENT, smena yo'q)
-    // !isStudent (teacher/director) → isLate = false (PRESENT)
+    // Teacher/Director → always PRESENT (isLate = false)
 
     let attendance: any;
 
