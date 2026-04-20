@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TurnstileService } from '../turnstile/turnstile.service';
 import { CreateTeacherDto, UpdateTeacherDto } from './dto/teacher.dto';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { RedisService } from '../redis/redis.service';
 
 function pad(num: number, size: number) {
   return String(num).padStart(size, '0');
@@ -19,6 +20,7 @@ export class TeachersService {
     private prisma: PrismaService,
     private turnstileService: TurnstileService,
     private auditLog: AuditLogService,
+    private redis: RedisService,
   ) {}
 
   private async nextStaffEnrollNumber(tx: PrismaService, schoolId: string) {
@@ -99,6 +101,7 @@ export class TeachersService {
         details: { name: `${dto.firstName} ${dto.lastName}`, type: finalType },
       });
 
+      await this.invalidateTeachersCache(dto.schoolId);
       return result;
     });
   }
@@ -172,15 +175,30 @@ export class TeachersService {
         details: { name: `${existing.firstName} ${existing.lastName}` },
       });
 
+      await this.invalidateTeachersCache(existing.schoolId);
       return updated;
     });
   }
 
+  private teachersCacheKey(schoolId: string) {
+    return `teachers:all:${schoolId}`;
+  }
+
+  private async invalidateTeachersCache(schoolId?: string | null) {
+    if (schoolId) {
+      await this.redis.del(this.teachersCacheKey(schoolId));
+    }
+  }
+
   async getAll(schoolId: string) {
-    return this.prisma.teacher.findMany({
+    const cacheKey = this.teachersCacheKey(schoolId);
+    const cached = await this.redis.getCache(cacheKey);
+    if (cached) return cached;
+
+    const data = await this.prisma.teacher.findMany({
       where: { schoolId },
       orderBy: { lastName: 'asc' },
-      take: 500, // safety cap
+      take: 500,
       select: {
         id: true,
         firstName: true,
@@ -198,6 +216,10 @@ export class TeachersService {
         },
       },
     });
+
+    // Cache 2 minutes — photos are heavy, avoid re-fetching per request
+    await this.redis.setCache(cacheKey, data, 120);
+    return data;
   }
 
   // ==========================================
@@ -345,6 +367,7 @@ export class TeachersService {
       details: { name: `${teacher.firstName} ${teacher.lastName}`, type: teacher.type },
     });
 
+    await this.invalidateTeachersCache(teacher.schoolId);
     return { message: 'Teacher deleted successfully' };
   }
 

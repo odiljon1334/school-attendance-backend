@@ -194,6 +194,29 @@ export class AttendanceController {
     );
   }
 
+  // ==========================================
+  // ✅ SUMMARY — status bo'yicha count (history stats uchun)
+  // GET /attendance/summary?schoolId=&startDate=&endDate=
+  // ==========================================
+  @Get('summary')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(
+    UserRole.SUPER_ADMIN,
+    UserRole.MINISTRY,
+    UserRole.DISTRICT_ADMIN,
+    UserRole.SCHOOL_ADMIN,
+    UserRole.DIRECTOR,
+    UserRole.TEACHER,
+  )
+  getSummary(
+    @Query('schoolId')  schoolId: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate')   endDate?: string,
+  ) {
+    if (!schoolId) throw new BadRequestException('schoolId required');
+    return this.attendanceService.getSummary({ schoolId, startDate, endDate });
+  }
+
   @Get('today/:schoolId')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(

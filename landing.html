@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="HRPay — Zamonaviy HR Attendance va Payroll boshqaruv tizimi. Xodimlar davomati va ish haqini avtomatlashtiring.">
+  <meta property="og:title" content="HRPay — HR Attendance & Payroll">
+  <meta property="og:description" content="Xodimlar davomati va ish haqi boshqaruvini avtomatlashtiring. 500+ kompaniya ishonadi.">
+  <meta property="og:type" content="website">
+  <title>HRPay — HR Attendance & Payroll</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <style>
+    /* ===== VARIABLES ===== */
+    :root {
+      --a1: #4f46e5;
+      --a2: #7c3aed;
+      --grad: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      --grad-light: linear-gradient(135deg, rgba(79,70,229,0.08) 0%, rgba(124,58,237,0.08) 100%);
+      --bg: #fafaf8;
+      --bg-card: #ffffff;
+      --bg-sec: #f4f4f0;
+      --txt: #1a1a2e;
+      --txt2: #4a4a6a;
+      --border: rgba(0,0,0,0.08);
+      --shadow: 0 4px 24px rgba(0,0,0,0.08);
+      --shadow-hover: 0 12px 40px rgba(0,0,0,0.14);
+      --footer: #1a1a2e;
+      --r: 16px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--txt); overflow-x: hidden; }
+
+    /* ===== KEYFRAMES ===== */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(32px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes float {
+      0%,100% { transform: translateY(0); }
+      50%      { transform: translateY(-22px); }
+    }
+    @keyframes shimmer {
+      0%   { background-position: -200% center; }
+      100% { background-position:  200% center; }
+    }
+    @keyframes pulseSoft {
+      0%,100% { transform: scale(1); }
+      50%      { transform: scale(1.04); }
+    }
+
+    /* ===== SCROLL ANIMATE ===== */
+    .fiu { opacity: 0; transform: translateY(28px); transition: opacity .65s ease, transform .65s ease; }
+    .fiu.vis { opacity: 1; transform: translateY(0); }
+
+    /* ===== GRADIENT TEXT ===== */
+    .gtxt {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #4f46e5 100%);
+      background-size: 200% auto;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: shimmer 4s linear infinite;
+    }
+
+    /* ===== BUTTONS ===== */
+    .btn-grad {
+      background: var(--grad);
+      color: #fff !important;
+      border: none;
+      border-radius: 50px;
+      padding: 12px 28px;
+      font-weight: 600;
+      font-size: .95rem;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 44px;
+      transition: all .3s;
+      box-shadow: 0 4px 18px rgba(79,70,229,.3);
+    }
+    .btn-grad:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(79,70,229,.42); }
+    .btn-grad:disabled { opacity: .7; cursor: not-allowed; transform: none; }
+
+    .btn-out {
+      background: transparent;
+      color: var(--a1) !important;
+      border: 2px solid var(--a1);
+      border-radius: 50px;
+      padding: 10px 28px;
+      font-weight: 600;
+      font-size: .95rem;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 44px;
+      transition: all .3s;
+    }
+    .btn-out:hover { background: var(--grad); color: #fff !important; border-color: transparent; transform: translateY(-2px); }
+
+    /* ===== SECTION BADGE & TITLE ===== */
+    .sbadge {
+      display: inline-block;
+      background: var(--grad-light);
+      border: 1px solid rgba(79,70,229,.18);
+      border-radius: 50px;
+      padding: 4px 14px;
+      font-size: .8rem;
+      font-weight: 600;
+      color: var(--a1);
+      margin-bottom: 12px;
+    }
+    .stitle { font-size: clamp(1.75rem, 3vw, 2.4rem); font-weight: 800; color: var(--txt); margin-bottom: 14px; }
+    .ssub   { font-size: 1rem; color: var(--txt2); line-height: 1.7; max-width: 600px; margin: 0 auto; }
+
+    /* ===== NAVBAR ===== */
+    #navbar {
+      position: sticky; top: 0; z-index: 1000;
+      background: rgba(255,255,255,.88);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 13px 0;
+      transition: box-shadow .3s;
+    }
+    #navbar.scrolled { box-shadow: 0 4px 24px rgba(0,0,0,.1); }
+    .nb-brand { font-size: 1.35rem; font-weight: 800; text-decoration: none; }
+    .nlink { color: var(--txt2) !important; font-size: .91rem; font-weight: 500; padding: 6px 13px !important; border-radius: 8px; text-decoration: none; transition: all .2s; white-space: nowrap; }
+    .nlink:hover { color: var(--a1) !important; background: var(--grad-light); }
+    .hbtn { background: none; border: none; font-size: 1.5rem; color: var(--txt); cursor: pointer; padding: 6px 8px; }
+    .mob-menu { display: none; background: #fff; border-top: 1px solid var(--border); padding: 12px 0; }
+    .mob-menu.open { display: block; }
+    .mob-menu .nlink { display: block; padding: 10px 20px !important; }
+    @media (min-width:992px) { .hbtn { display: none !important; } .mob-menu { display: none !important; } }
+    @media (max-width:991px) { .desk-nav { display: none !important; } }
+
+    /* ===== HERO ===== */
+    #hero {
+      background: var(--bg);
+      padding: 96px 0 80px;
+      position: relative;
+      overflow: hidden;
+      min-height: 88vh;
+      display: flex;
+      align-items: center;
+    }
+    .blob {
+      position: absolute; border-radius: 50%; filter: blur(70px);
+      pointer-events: none; animation: float 7s ease-in-out infinite;
+    }
+    .b1 { width: 420px; height: 420px; background: var(--grad); opacity: .11; top: -130px; right: -100px; animation-delay: 0s; }
+    .b2 { width: 320px; height: 320px; background: linear-gradient(135deg,#7c3aed,#a855f7); opacity: .1; bottom: -80px; left: -90px; animation-delay: 2.5s; }
+    .b3 { width: 180px; height: 180px; background: linear-gradient(135deg,#4f46e5,#06b6d4); opacity: .08; top: 42%; right: 18%; animation-delay: 4.5s; }
+    .hero-title { font-size: clamp(2.3rem, 5vw, 3.9rem); font-weight: 900; line-height: 1.1; margin-bottom: 22px; }
+    .hero-sub { font-size: clamp(.97rem, 1.8vw, 1.18rem); color: var(--txt2); line-height: 1.75; margin-bottom: 36px; max-width: 510px; }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 7px;
+      background: var(--grad-light); border: 1px solid rgba(79,70,229,.2);
+      border-radius: 50px; padding: 5px 16px; font-size: .84rem; font-weight: 600;
+      color: var(--a1); margin-bottom: 22px;
+    }
+    .hero-stats { display: flex; gap: 30px; margin-top: 44px; flex-wrap: wrap; }
+    .hs-num  { font-size: 1.7rem; font-weight: 900; }
+    .hs-lbl  { font-size: .8rem; color: var(--txt2); margin-top: 2px; }
+
+    /* hero dashboard mock */
+    .dash-mock { background: #fff; border-radius: 18px; padding: 22px; box-shadow: 0 20px 60px rgba(0,0,0,.11); border: 1px solid var(--border); position: relative; }
+    .dm-dots { display: flex; gap: 6px; margin-bottom: 14px; }
+    .dm-dot  { width: 11px; height: 11px; border-radius: 50%; }
+    .dm-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 12px; }
+    .dm-stat-box { background: var(--bg-sec); border-radius: 9px; padding: 10px; text-align: center; }
+    .dm-sn   { font-size: 1.05rem; font-weight: 800; margin-bottom: 2px; }
+    .dm-sl   { font-size: .57rem; color: var(--txt2); }
+    .dm-row  { background: var(--bg-sec); border-radius: 8px; height: 38px; margin-bottom: 7px; display: flex; align-items: center; padding: 0 12px; gap: 10px; }
+    .dm-av   { width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0; }
+    .dm-ln   { height: 8px; border-radius: 4px; background: #e2e8f0; }
+    .dm-tag  { margin-left: auto; border-radius: 10px; padding: 2px 9px; font-size: .63rem; font-weight: 700; white-space: nowrap; }
+    .fcard {
+      position: absolute; background: #fff; border-radius: 14px;
+      padding: 12px 16px; box-shadow: 0 8px 32px rgba(0,0,0,.13);
+      border: 1px solid var(--border); display: flex; align-items: center; gap: 10px;
+    }
+    .fcard-icon { width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: .95rem; flex-shrink: 0; }
+    .fcard-lbl  { font-size: .72rem; color: var(--txt2); }
+    .fcard-val  { font-size: .86rem; font-weight: 700; color: var(--txt); }
+    .fc1 { top: -20px; left: -24px; animation: float 4.5s ease-in-out infinite; }
+    .fc2 { bottom: -18px; right: -16px; animation: float 5.5s ease-in-out infinite; animation-delay: 1s; }
+
+    /* ===== FEATURES ===== */
+    #features { padding: 100px 0; background: var(--bg); }
+    .feat-card {
+      background: #fff; border-radius: var(--r); padding: 30px 24px;
+      border: 1px solid var(--border); box-shadow: var(--shadow);
+      transition: all .3s; height: 100%;
+    }
+    .feat-card:hover { transform: translateY(-5px); box-shadow: var(--shadow-hover); }
+    .feat-icon { width: 54px; height: 54px; border-radius: 14px; background: var(--grad); display: flex; align-items: center; justify-content: center; font-size: 1.4rem; color: #fff; margin-bottom: 18px; }
+    .feat-title { font-size: 1.02rem; font-weight: 700; margin-bottom: 9px; color: var(--txt); }
+    .feat-text  { font-size: .88rem; color: var(--txt2); line-height: 1.65; }
+
+    /* ===== STATS ===== */
+    #stats { padding: 80px 0; background: var(--bg-sec); }
+    .stat-box { text-align: center; padding: 40px 16px; }
+    .stat-n   { font-size: clamp(2.2rem, 4vw, 3.4rem); font-weight: 900; margin-bottom: 6px; }
+    .stat-l   { font-size: .93rem; color: var(--txt2); font-weight: 500; }
+
+    /* ===== HOW IT WORKS ===== */
+    #how { padding: 100px 0; background: var(--bg-sec); }
+    .step-card { background: #fff; border-radius: var(--r); padding: 32px 24px; border: 1px solid var(--border); box-shadow: var(--shadow); text-align: center; height: 100%; }
+    .step-num  { width: 48px; height: 48px; border-radius: 50%; background: var(--grad); color: #fff; font-size: 1.2rem; font-weight: 800; display: flex; align-items: center; justify-content: center; margin: 0 auto 18px; }
+    .step-ttl  { font-size: 1.05rem; font-weight: 700; margin-bottom: 10px; color: var(--txt); }
+    .step-txt  { font-size: .88rem; color: var(--txt2); line-height: 1.65; }
+    .step-line { position: absolute; top: 48px; left: 50%; right: -50%; border-top: 2px dashed rgba(79,70,229,.25); z-index: 0; }
+    @media (max-width:767px) { .step-line { display: none; } }
+
+    /* ===== TESTIMONIALS ===== */
+    #testimonials { padding: 100px 0; background: var(--bg); }
+    .testi-card { background: #fff; border-radius: var(--r); padding: 30px; border: 1px solid var(--border); box-shadow: var(--shadow); transition: all .3s; height: 100%; }
+    .testi-card:hover { transform: translateY(-5px); box-shadow: var(--shadow-hover); }
+    .t-av     { width: 50px; height: 50px; border-radius: 50%; background: var(--grad); color: #fff; font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-bottom: 14px; }
+    .t-stars  { color: #f59e0b; font-size: .88rem; margin-bottom: 14px; }
+    .t-quote  { font-size: .92rem; color: var(--txt2); line-height: 1.72; font-style: italic; margin-bottom: 18px; }
+    .t-name   { font-weight: 700; font-size: .92rem; color: var(--txt); }
+    .t-role   { font-size: .8rem; color: var(--txt2); }
+
+    /* ===== PRICING ===== */
+    #pricing { padding: 100px 0; background: var(--bg); }
+    .tog-wrap { display: flex; align-items: center; gap: 14px; justify-content: center; margin-bottom: 44px; flex-wrap: wrap; }
+    .tog-lbl  { font-size: .93rem; font-weight: 600; color: var(--txt2); transition: color .3s; }
+    .tog-sw   { position: relative; width: 52px; height: 28px; cursor: pointer; display: inline-block; flex-shrink: 0; }
+    .tog-sw input { opacity: 0; width: 0; height: 0; }
+    .tog-sl   { position: absolute; inset: 0; background: #e2e8f0; border-radius: 28px; transition: .3s; }
+    .tog-sl::before { content:''; position:absolute; width:22px; height:22px; left:3px; bottom:3px; background:#fff; border-radius:50%; transition:.3s; box-shadow:0 2px 4px rgba(0,0,0,.18); }
+    .tog-sw input:checked + .tog-sl { background: var(--a1); }
+    .tog-sw input:checked + .tog-sl::before { transform: translateX(24px); }
+    .disc-badge { background: #dcfce7; color: #16a34a; font-size: .74rem; font-weight: 700; padding: 3px 9px; border-radius: 50px; }
+    .p-card { background: #fff; border-radius: 20px; padding: 36px 28px; border: 1px solid var(--border); box-shadow: var(--shadow); position: relative; transition: all .3s; height: 100%; }
+    .p-card:hover { transform: translateY(-5px); box-shadow: var(--shadow-hover); }
+    .p-card.popular { border: 2px solid var(--a1); background: linear-gradient(to bottom, rgba(79,70,229,.03), #fff); transform: scale(1.04); }
+    .p-card.popular:hover { transform: scale(1.04) translateY(-5px); }
+    @media (max-width:991px) { .p-card.popular { transform: scale(1); } .p-card.popular:hover { transform: translateY(-5px); } }
+    .pop-badge { position: absolute; top: -14px; left: 50%; transform: translateX(-50%); background: var(--grad); color: #fff; font-size: .74rem; font-weight: 700; padding: 4px 16px; border-radius: 50px; white-space: nowrap; }
+    .p-plan   { font-size: .82rem; font-weight: 600; color: var(--txt2); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+    .p-price  { font-size: 2.7rem; font-weight: 900; color: var(--txt); line-height: 1; margin-bottom: 4px; }
+    .p-price sup { font-size: 1.1rem; font-weight: 700; vertical-align: top; margin-top: 7px; }
+    .p-per    { font-size: .83rem; color: var(--txt2); margin-bottom: 22px; }
+    .p-feats  { list-style: none; margin-bottom: 26px; }
+    .p-feats li { font-size: .88rem; color: var(--txt2); padding: 5px 0; display: flex; align-items: center; gap: 9px; }
+    .p-feats li .bi-check2 { color: var(--a1); font-weight: 800; font-size: .95rem; flex-shrink: 0; }
+
+    /* ===== FAQ ===== */
+    #faq { padding: 100px 0; background: var(--bg-sec); }
+    .accordion-item { border: 1px solid var(--border) !important; border-radius: 12px !important; margin-bottom: 8px; overflow: hidden; }
+    .accordion-button { font-weight: 600; font-size: .93rem; color: var(--txt); background: #fff; }
+    .accordion-button:not(.collapsed) { color: var(--a1); background: #fff; box-shadow: none; }
+    .accordion-button:focus { box-shadow: none; }
+    .accordion-button::after { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z' fill='%234f46e5'/%3E%3C/svg%3E"); }
+    .accordion-body { font-size: .88rem; color: var(--txt2); line-height: 1.72; }
+
+    /* ===== CONTACT ===== */
+    #contact { padding: 100px 0; background: var(--bg-sec); }
+    .c-wrap  { background: #fff; border-radius: 20px; padding: 48px 40px; box-shadow: var(--shadow); border: 1px solid var(--border); }
+    @media (max-width:576px) { .c-wrap { padding: 30px 20px; } }
+    .f-lbl   { font-size: .87rem; font-weight: 600; color: var(--txt); display: block; margin-bottom: 6px; }
+    .f-inp   { width: 100%; background: #f8f8f6; border: 1.5px solid var(--border); border-radius: 12px; padding: 12px 15px; font-size: .93rem; color: var(--txt); font-family: inherit; transition: all .2s; }
+    .f-inp:focus { outline: none; border-color: var(--a1); background: #fff; box-shadow: 0 0 0 3px rgba(79,70,229,.1); }
+    textarea.f-inp { resize: vertical; min-height: 118px; }
+
+    /* ===== CTA ===== */
+    #cta { padding: 100px 0; background: var(--grad); position: relative; overflow: hidden; }
+    .cta-deco { position: absolute; border-radius: 50%; border: 2px solid rgba(255,255,255,.14); pointer-events: none; }
+    .cd1 { width: 320px; height: 320px; top: -110px; right: -60px; }
+    .cd2 { width: 220px; height: 220px; bottom: -90px; left: -50px; }
+    .cd3 { width: 140px; height: 140px; top: 50%; left: 12%; transform: translateY(-50%); opacity: .5; }
+    .cta-title { font-size: clamp(1.75rem, 3vw, 2.4rem); font-weight: 800; color: #fff; margin-bottom: 14px; }
+    .cta-sub   { color: rgba(255,255,255,.85); font-size: 1rem; margin-bottom: 36px; }
+    .cta-row   { display: flex; gap: 10px; max-width: 480px; margin: 0 auto; flex-wrap: wrap; justify-content: center; }
+    .cta-inp   { flex: 1; min-width: 200px; padding: 13px 20px; border-radius: 50px; border: none; font-size: .93rem; font-family: inherit; outline: none; }
+    .btn-white { background: #fff; color: var(--a1) !important; border: none; border-radius: 50px; padding: 13px 26px; font-weight: 700; font-size: .93rem; cursor: pointer; transition: all .3s; white-space: nowrap; min-height: 44px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-white:hover { background: rgba(255,255,255,.9); transform: translateY(-2px); }
+
+    /* ===== FOOTER ===== */
+    #footer { background: var(--footer); padding: 80px 0 36px; }
+    .f-logo  { font-size: 1.32rem; font-weight: 800; color: #fff; text-decoration: none; display: inline-block; margin-bottom: 14px; }
+    .f-desc  { font-size: .86rem; color: rgba(255,255,255,.45); line-height: 1.7; margin-bottom: 22px; }
+    .f-soc a { width: 36px; height: 36px; border-radius: 8px; background: rgba(255,255,255,.08); color: rgba(255,255,255,.55); display: inline-flex; align-items: center; justify-content: center; margin-right: 7px; font-size: 1rem; text-decoration: none; transition: all .2s; }
+    .f-soc a:hover { background: var(--grad); color: #fff; transform: translateY(-2px); }
+    .f-head  { font-size: .82rem; font-weight: 700; color: #fff; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 18px; }
+    .f-links { list-style: none; }
+    .f-links li { margin-bottom: 9px; }
+    .f-links a { color: rgba(255,255,255,.45); text-decoration: none; font-size: .86rem; transition: color .2s; }
+    .f-links a:hover { color: #fff; }
+    .f-divider { border-color: rgba(255,255,255,.09); margin: 36px 0 18px; }
+    .f-copy { font-size: .8rem; color: rgba(255,255,255,.28); }
+
+    /* ===== TOAST ===== */
+    #toast-box { position: fixed; bottom: 22px; right: 22px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+    .toast-item {
+      min-width: 280px; max-width: 360px; background: #fff; border-radius: 12px;
+      padding: 14px 18px; box-shadow: 0 8px 32px rgba(0,0,0,.16);
+      display: flex; align-items: center; gap: 11px;
+      border-left: 4px solid; font-size: .88rem; font-weight: 500;
+      animation: fadeInUp .3s ease;
+      transition: opacity .3s;
+    }
+    .toast-item.success { border-color: #22c55e; }
+    .toast-item.error   { border-color: #ef4444; }
+    .toast-item.warning { border-color: #f59e0b; }
+    .ti-ico { font-size: 1.15rem; flex-shrink: 0; }
+    .toast-item.success .ti-ico { color: #22c55e; }
+    .toast-item.error   .ti-ico { color: #ef4444; }
+    .toast-item.warning .ti-ico { color: #f59e0b; }
+
+    /* ===== MISC ===== */
+    section { padding: 100px 0; }
+    @media (max-width:768px) {
+      section { padding: 64px 0 !important; }
+      #hero { padding: 72px 0 56px; min-height: auto; }
+      .c-wrap { padding: 28px 18px; }
+    }
+    @media (max-width:480px) {
+      .hero-title { font-size: 2rem; }
+      .btn-grad, .btn-out { padding: 10px 20px; font-size: .9rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- TOAST BOX -->
+<div id="toast-box"></div>
+
+<!-- ======================================================
+     NAVBAR
+====================================================== -->
+<nav id="navbar">
+  <div class="container">
+    <div class="d-flex align-items-center justify-content-between">
+      <a href="#hero" class="nb-brand gtxt text-decoration-none">
+        <i class="bi bi-people-fill me-2"></i>HRPay
+      </a>
+      <div class="desk-nav d-flex align-items-center gap-1">
+        <a href="#features"      class="nlink">Afzalliklar</a>
+        <a href="#how"           class="nlink">Qanday ishlaydi</a>
+        <a href="#pricing"       class="nlink">Narxlar</a>
+        <a href="#testimonials"  class="nlink">Sharhlar</a>
+        <a href="#faq"           class="nlink">FAQ</a>
+      </div>
+      <div class="d-flex align-items-center gap-3">
+        <a href="#contact" class="btn-grad d-none d-lg-inline-flex">Bog'lanish</a>
+        <button class="hbtn" id="hbtn"><i class="bi bi-list" id="hico"></i></button>
+      </div>
+    </div>
+    <div class="mob-menu" id="mobMenu">
+      <a href="#features"      class="nlink">Afzalliklar</a>
+      <a href="#how"           class="nlink">Qanday ishlaydi</a>
+      <a href="#pricing"       class="nlink">Narxlar</a>
+      <a href="#testimonials"  class="nlink">Sharhlar</a>
+      <a href="#faq"           class="nlink">FAQ</a>
+      <div class="px-3 mt-2"><a href="#contact" class="btn-grad">Bog'lanish</a></div>
+    </div>
+  </div>
+</nav>
+
+<!-- ======================================================
+     HERO
+====================================================== -->
+<section id="hero">
+  <div class="blob b1"></div>
+  <div class="blob b2"></div>
+  <div class="blob b3"></div>
+  <div class="container">
+    <div class="row align-items-center g-5">
+
+      <!-- LEFT -->
+      <div class="col-lg-6">
+        <div class="hero-badge fiu" style="transition-delay:.05s">
+          <i class="bi bi-lightning-charge-fill"></i> Yangi avlod HR tizimi
+        </div>
+        <h1 class="hero-title fiu" style="transition-delay:.15s">
+          Xodimlar davomati va
+          <span class="gtxt">ish haqi</span>
+          avtomatik boshqaruv
+        </h1>
+        <p class="hero-sub fiu" style="transition-delay:.25s">
+          Kompaniyangiz xodimlarining davomatini kuzating, ish haqini avtomatik hisoblang va HR jarayonlarini bir joyda boshqaring. Vaqtni tejang, samaradorlikni oshiring.
+        </p>
+        <div class="d-flex gap-3 flex-wrap fiu" style="transition-delay:.35s">
+          <a href="#contact" class="btn-grad"><i class="bi bi-rocket-takeoff"></i>Bepul boshlash</a>
+          <a href="#how"     class="btn-out"><i class="bi bi-play-circle"></i>Qanday ishlaydi</a>
+        </div>
+        <div class="hero-stats fiu" style="transition-delay:.45s">
+          <div><div class="hs-num gtxt">500+</div><div class="hs-lbl">Kompaniya</div></div>
+          <div><div class="hs-num gtxt">50K+</div><div class="hs-lbl">Xodim</div></div>
+          <div><div class="hs-num gtxt">99.9%</div><div class="hs-lbl">Uptime</div></div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Dashboard Mock -->
+      <div class="col-lg-6 d-none d-lg-block">
+        <div style="position:relative">
+          <div class="dash-mock fiu" style="transition-delay:.2s">
+            <div class="dm-dots">
+              <div class="dm-dot" style="background:#ef4444"></div>
+              <div class="dm-dot" style="background:#f59e0b"></div>
+              <div class="dm-dot" style="background:#22c55e"></div>
+              <div class="ms-2" style="font-size:.68rem;color:var(--txt2);align-self:center">HR Dashboard</div>
+            </div>
+            <div class="dm-stats">
+              <div class="dm-stat-box">
+                <div class="dm-sn gtxt">248</div>
+                <div class="dm-sl">Jami xodim</div>
+              </div>
+              <div class="dm-stat-box">
+                <div class="dm-sn" style="color:#22c55e">231</div>
+                <div class="dm-sl">Bugun kelgan</div>
+              </div>
+              <div class="dm-stat-box">
+                <div class="dm-sn" style="color:#f59e0b">17</div>
+                <div class="dm-sl">Kelmagan</div>
+              </div>
+            </div>
+            <div class="dm-row">
+              <div class="dm-av" style="background:linear-gradient(135deg,#4f46e5,#7c3aed)"></div>
+              <div class="dm-ln" style="width:95px"></div>
+              <div class="dm-ln" style="width:55px;margin-left:auto"></div>
+              <div class="dm-tag" style="background:#dcfce7;color:#16a34a">Keldi</div>
+            </div>
+            <div class="dm-row">
+              <div class="dm-av" style="background:linear-gradient(135deg,#06b6d4,#4f46e5)"></div>
+              <div class="dm-ln" style="width:75px"></div>
+              <div class="dm-ln" style="width:65px;margin-left:auto"></div>
+              <div class="dm-tag" style="background:#dcfce7;color:#16a34a">Keldi</div>
+            </div>
+            <div class="dm-row">
+              <div class="dm-av" style="background:linear-gradient(135deg,#a855f7,#ec4899)"></div>
+              <div class="dm-ln" style="width:110px"></div>
+              <div class="dm-ln" style="width:48px;margin-left:auto"></div>
+              <div class="dm-tag" style="background:#fee2e2;color:#ef4444">Kelmadi</div>
+            </div>
+            <div class="dm-row">
+              <div class="dm-av" style="background:linear-gradient(135deg,#f59e0b,#ef4444)"></div>
+              <div class="dm-ln" style="width:88px"></div>
+              <div class="dm-ln" style="width:60px;margin-left:auto"></div>
+              <div class="dm-tag" style="background:#dcfce7;color:#16a34a">Keldi</div>
+            </div>
+            <div class="mt-3 d-flex align-items-center justify-content-between">
+              <div style="font-size:.68rem;color:var(--txt2)">Ish haqi hisoboti — Aprel 2026</div>
+              <div class="gtxt" style="font-size:.68rem;font-weight:700">Tayyor ✓</div>
+            </div>
+          </div>
+
+          <!-- floating cards -->
+          <div class="fcard fc1">
+            <div class="fcard-icon" style="background:linear-gradient(135deg,#22c55e,#16a34a)">
+              <i class="bi bi-check2-circle"></i>
+            </div>
+            <div>
+              <div class="fcard-lbl">Ish haqi to'landi</div>
+              <div class="fcard-val">248 xodim</div>
+            </div>
+          </div>
+          <div class="fcard fc2">
+            <div class="fcard-icon" style="background:var(--grad)">
+              <i class="bi bi-clock-history"></i>
+            </div>
+            <div>
+              <div class="fcard-lbl">Ish vaqti</div>
+              <div class="fcard-val">Avtomatik</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================
+     FEATURES
+====================================================== -->
+<section id="features" style="padding:100px 0;background:var(--bg)">
+  <div class="container">
+    <div class="text-center mb-5">
+      <div class="sbadge fiu">Afzalliklar</div>
+      <h2 class="stitle fiu">Nima uchun <span class="gtxt">HRPay?</span></h2>
+      <p class="ssub fiu">HR jarayonlaringizni yangi darajaga olib chiqadigan kuchli funksiyalar</p>
+    </div>
+    <div class="row g-4">
+      <div class="col-md-6 col-lg-4">
+        <div class="feat-card fiu">
+          <div class="feat-icon"><i class="bi bi-fingerprint"></i></div>
+          <div class="feat-title">Biometrik Davomat</div>
+          <div class="feat-text">Barmoq izi, yuz tanish yoki QR-kod orqali xodimlarning kelish-ketish vaqtlarini aniq qayd eting.</div>
+        </div>
+      </div>
+      <div class="col-md-6 col-lg-4">
+        <div class="feat-card fiu" style="transition-delay:.1s">
+          <div class="feat-icon"><i class="bi bi-calculator-fill"></i></div>
+          <div class="feat-title">Avtomatik Ish Haqi</div>
+          <div class="feat-text">Ish vaqti, bonus, jarima va soliqlarni hisobga olgan holda ish haqini bir tugma bilan hisoblang.</div>
+        </div>
+      </div>
+      <div class="col-md-6 col-lg-4">
+        <div class="feat-card fiu" style="transition-delay:.2s">
+          <div class="feat-icon"><i class="bi bi-graph-up-arrow"></i></div>
+          <div class="feat-title">Real-time Hisobotlar</div>
+          <div class="feat-text">Davomat, kechikish, ish haqi xarajatlari bo'yicha batafsil analitika va vizual hisobotlar.</div>
+        </div>
+      </div>
+      <div class="col-md-6 col-lg-4">
+        <div class="feat-card fiu" style="transition-delay:.1s">
+          <div class="feat-icon"><i class="bi bi-calendar-check-fill"></i></div>
+          <div class="feat-title">Ta'til Boshqaruvi</div>
+          <div class="feat-text">Xodimlarning ta'til, kasallik va ruxsatlarini so'rov-tasdiqlash tizimi bilan boshqaring.</div>
+        </div>
+      </div>
+      <div class="col-md-6 col-lg-4">
+        <div class="feat-card fiu" style="transition-delay:.2s">
+          <div class="feat-icon"><i class="bi bi-shield-lock-fill"></i></div>
+          <div class="feat-title">Ma'lumot Xavfsizligi</div>
+          <div class="feat-text">256-bit SSL shifrlash, ikki bosqichli autentifikatsiya va rolga asoslangan kirish boshqaruvi.</div>
+        </div>
+      </div>
+      <div class="col-md-6 col-lg-4">
+        <div class="feat-card fiu" style="transition-delay:.3s">
+          <div class="feat-icon"><i class="bi bi-phone-fill"></i></div>
+          <div class="feat-title">Mobil Ilova</div>
+          <div class="feat-text">iOS va Android orqali xodimlar istalgan joydan davomatni belgilashi va ma'lumotlarga kirishi mumkin.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================
+     STATS
+====================================================== -->
+<section id="stats" style="padding:80px 0;background:var(--bg-sec)">
+  <div class="container">
+    <div class="row g-0">
+      <div class="col-6 col-md-3">
+        <div class="stat-box fiu">
+          <div class="stat-n gtxt" data-target="500" data-suffix="+">0</div>
+          <div class="stat-l">Faol Kompaniya</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-box fiu" style="transition-delay:.1s">
+          <div class="stat-n gtxt" data-target="50" data-suffix="K+">0</div>
+          <div class="stat-l">Ro'yxatdagi Xodim</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-box fiu" style="transition-delay:.2s">
+          <div class="stat-n gtxt" data-target="99.9" data-suffix="%" data-dec="1">0</div>
+          <div class="stat-l">Tizim Uptime</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-box fiu" style="transition-delay:.3s">
+          <div class="stat-n gtxt" data-target="4.9" data-suffix="/5" data-dec="1">0</div>
+          <div class="stat-l">Mijoz Bahosi</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================
+     HOW IT WORKS
+====================================================== -->
+<section id="how" style="padding:100px 0;background:var(--bg-sec)">
+  <div class="container">
+    <div class="text-center mb-5">
+      <div class="sbadge fiu">Jarayon</div>
+      <h2 class="stitle fiu">Qanday <span class="gtxt">ishlaydi?</span></h2>
+      <p class="ssub fiu">Uch oddiy qadamda kompaniyangizni to'liq raqamlashtiring</p>
+    </div>
+    <div class="row g-4 position-relative">
+      <div class="col-md-4 position-relative">
+        <div class="step-card fiu">
+          <div class="step-num">1</div>
+          <h3 class="step-ttl">Ro'yxatdan o'ting</h3>
+          <p class="step-txt">Kompaniya ma'lumotlarini kiriting va xodimlarni qo'shing. Mavjud Excel jadvallaridan import qiling.</p>
+        </div>
+        <div class="step-line d-none d-md-block"></div>
+      </div>
+      <div class="col-md-4 position-relative">
+        <div class="step-card fiu" style="transition-delay:.12s">
+          <div class="step-num">2</div>
+          <h3 class="step-ttl">Davomatni sozlang</h3>
+          <p class="step-txt">Ish vaqti jadvalini, ta'til kunlarini va davomat usullarini sozlang. QR yoki biometrik qurilmalarni ulang.</p>
+        </div>
+        <div class="step-line d-none d-md-block"></div>
+      </div>
+      <div class="col-md-4">
+        <div class="step-card fiu" style="transition-delay:.24s">
+          <div class="step-num">3</div>
+          <h3 class="step-ttl">Avtomatik boshqaring</h3>
+          <p class="step-txt">Tizim davomat, ish haqi va hisobotlarni avtomatik yuritadi. Siz faqat muhim qarorlar qabul qilasiz.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================
+     TESTIMONIALS
+====================================================== -->
+<section id="testimonials" style="padding:100px 0;background:var(--bg)">
+  <div class="container">
+    <div class="text-center mb-5">
+      <div class="sbadge fiu">Sharhlar</div>
+      <h2 class="stitle fiu">Mijozlarimiz <span class="gtxt">fikri</span></h2>
+      <p class="ssub fiu">Yuzlab kompaniya bizga ishonib yuqori natijalarga erishdi</p>
+    </div>
+    <div class="row g-4">
+      <div class="col-md-4">
+        <div class="testi-card fiu">
+          <div class="t-av">A</div>
+          <div class="t-stars">
+            <i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i>
+          </div>
+          <p class="t-quote">"HRPay tizimini joriy etgandan so'ng ish haqi hisoblashga sarflagan vaqtimiz 90% ga kamaydi. Endi hisobot tayyorlash bir daqiqa. Ajoyib mahsulot!"</p>
+          <div class="t-name">Aziz Karimov</div>
+          <div class="t-role">HR Director, TechSoft Uzbekistan</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="testi-card fiu" style="transition-delay:.12s">
+          <div class="t-av">M</div>
+          <div class="t-stars">
+            <i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i>
+          </div>
+          <p class="t-quote">"300 xodimli fabrikamizda davomat nazoratini qo'lda yuritish juda qiyin edi. HRPay bu muammoni butunlay hal qildi. Xatolar nolga tushdi."</p>
+          <div class="t-name">Malika Yusupova</div>
+          <div class="t-role">CEO, Optimal Tekstil</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="testi-card fiu" style="transition-delay:.24s">
+          <div class="t-av">J</div>
+          <div class="t-stars">
+            <i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-half"></i>
+          </div>
+          <p class="t-quote">"Mobil ilova orqali xodimlar o'z jadvallarini va ta'tillarini ko'rishadi. Bu ularning qoniqishini katta oshirdi. Texnik yordam ham a'lo!"</p>
+          <div class="t-name">Jasur Toshmatov</div>
+          <div class="t-role">Operations Manager, LogisPro</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================
+     PRICING
+====================================================== -->
+<section id="pricing" style="padding:100px 0;background:var(--bg)">
+  <div class="container">
+    <div class="text-center mb-2">
+      <div class="sbadge fiu">Narxlar</div>
+      <h2 class="stitle fiu">Sizga mos <span class="gtxt">tarif</span></h2>
+      <p class="ssub fiu">Biznes o'lchamiga qarab moslashuvchan narxlar</p>
+    </div>
+    <div class="tog-wrap fiu">
+      <span class="tog-lbl" id="mlbl" style="color:var(--a1)">Oylik</span>
+      <label class="tog-sw">
+        <input type="checkbox" id="ptog">
+        <span class="tog-sl"></span>
+      </label>
+      <span class="tog-lbl" id="ylbl">Yillik</span>
+      <span class="disc-badge">-20%</span>
+    </div>
+    <div class="row g-4 align-items-center">
+      <div class="col-md-4">
+        <div class="p-card fiu">
+          <div class="p-plan">Boshlang'ich</div>
+          <div class="p-price"><sup>$</sup><span class="pv" data-m="29" data-y="23">29</span></div>
+          <div class="p-per">oyiga / 10 xodimgacha</div>
+          <ul class="p-feats">
+            <li><i class="bi bi-check2"></i> Davomat kuzatuvi</li>
+            <li><i class="bi bi-check2"></i> Asosiy ish haqi hisobi</li>
+            <li><i class="bi bi-check2"></i> Oylik hisobotlar</li>
+            <li><i class="bi bi-check2"></i> Email qo'llab-quvvatlash</li>
+            <li><i class="bi bi-check2"></i> Mobil ilova kirish</li>
+          </ul>
+          <a href="#contact" class="btn-out d-block text-center">Boshlash</a>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="p-card popular fiu" style="transition-delay:.12s">
+          <div class="pop-badge"><i class="bi bi-star-fill me-1"></i>Eng mashhur</div>
+          <div class="p-plan">Pro</div>
+          <div class="p-price gtxt"><sup>$</sup><span class="pv" data-m="79" data-y="63">79</span></div>
+          <div class="p-per">oyiga / 50 xodimgacha</div>
+          <ul class="p-feats">
+            <li><i class="bi bi-check2"></i> Hamma Starter funksiyalar</li>
+            <li><i class="bi bi-check2"></i> Biometrik integratsiya</li>
+            <li><i class="bi bi-check2"></i> Kengaytirilgan hisobotlar</li>
+            <li><i class="bi bi-check2"></i> Ta'til boshqaruvi</li>
+            <li><i class="bi bi-check2"></i> API integratsiyasi</li>
+            <li><i class="bi bi-check2"></i> 24/7 chat qo'llab-quvvatlash</li>
+          </ul>
+          <a href="#contact" class="btn-grad d-block text-center justify-content-center">Boshlash</a>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="p-card fiu" style="transition-delay:.24s">
+          <div class="p-plan">Enterprise</div>
+          <div class="p-price"><sup>$</sup><span class="pv" data-m="199" data-y="159">199</span></div>
+          <div class="p-per">oyiga / Cheksiz xodim</div>
+          <ul class="p-feats">
+            <li><i class="bi bi-check2"></i> Hamma Pro funksiyalar</li>
+            <li><i class="bi bi-check2"></i> Maxsus sozlash</li>
+            <li><i class="bi bi-check2"></i> 1C va ERP integratsiya</li>
+            <li><i class="bi bi-check2"></i> Maxsus menejer</li>
+            <li><i class="bi bi-check2"></i> SLA kafolati</li>
+            <li><i class="bi bi-check2"></i> O'qitish va onboarding</li>
+          </ul>
+          <a href="#contact" class="btn-out d-block text-center">Bog'lanish</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================
+     FAQ
+====================================================== -->
+<section id="faq" style="padding:100px 0;background:var(--bg-sec)">
+  <div class="container">
+    <div class="text-center mb-5">
+      <div class="sbadge fiu">FAQ</div>
+      <h2 class="stitle fiu">Ko'p so'raladigan <span class="gtxt">savollar</span></h2>
+    </div>
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="accordion fiu" id="faqL">
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#f1">
+                HRPay tizimini o'rnatish qanchalik qiyin?
+              </button>
+            </h2>
+            <div id="f1" class="accordion-collapse collapse" data-bs-parent="#faqL">
+              <div class="accordion-body">HRPay bulut asosidagi tizim bo'lib, hech qanday texnik bilim talab etmaydi. Ro'yxatdan o'tib, xodimlarni qo'shib, 30 daqiqa ichida ishni boshlashingiz mumkin. Texnik jamoamiz onboarding jarayonida to'liq yordam beradi.</div>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#f2">
+                Mavjud xodimlar ma'lumotlarini import qilsa bo'ladimi?
+              </button>
+            </h2>
+            <div id="f2" class="accordion-collapse collapse" data-bs-parent="#faqL">
+              <div class="accordion-body">Ha, Excel (.xlsx, .csv) formatidagi xodimlar ma'lumotlarini bir marta import qilish imkoni mavjud. 1C, SAP va boshqa ERP tizimlaridan migratsiya uchun maxsus vositalar ham taqdim etiladi.</div>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#f3">
+                Ma'lumotlar xavfsizligi qanday ta'minlanadi?
+              </button>
+            </h2>
+            <div id="f3" class="accordion-collapse collapse" data-bs-parent="#faqL">
+              <div class="accordion-body">Barcha ma'lumotlar 256-bit AES shifrlash bilan himoyalangan. Serverlar ISO 27001 sertifikatlangan markazlarda joylashgan. Har kuni zaxira nusxa olinadi va 2FA autentifikatsiya majburiy.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="accordion fiu" id="faqR">
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#f4">
+                Bepul sinash davri bormi?
+              </button>
+            </h2>
+            <div id="f4" class="accordion-collapse collapse" data-bs-parent="#faqR">
+              <div class="accordion-body">Ha! Barcha tariflar uchun 14 kunlik to'liq bepul sinash davri mavjud. Kredit karta talab qilinmaydi. Sinash davrida hamma funksiyalardan to'liq foydalanishingiz mumkin.</div>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#f5">
+                Qanday to'lov usullari qabul qilinadi?
+              </button>
+            </h2>
+            <div id="f5" class="accordion-collapse collapse" data-bs-parent="#faqR">
+              <div class="accordion-body">Visa, MasterCard, Payme, Click, Uzum Bank to'lovlari qabul qilinadi. Korporativ mijozlar uchun naqd va bank o'tkazmasi orqali ham to'lash mumkin. Yillik to'lovda 20% chegirma beriladi.</div>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#f6">
+                Biometrik qurilmalar bilan integratsiya bo'ladimi?
+              </button>
+            </h2>
+            <div id="f6" class="accordion-collapse collapse" data-bs-parent="#faqR">
+              <div class="accordion-body">Ha, ZKTeco, HikVision, Anviz va boshqa mashhur biometrik qurilmalar bilan integratsiya mavjud. Pro va Enterprise tariflarida bu funksiya standart holda kiritilgan. Qurilma o'rnatish bo'yicha ham yordam beramiz.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================
+     CONTACT
+====================================================== -->
+<section id="contact" style="padding:100px 0;background:var(--bg-sec)">
+  <div class="container">
+    <div class="row justify-content-center">
+      <div class="col-lg-8">
+        <div class="text-center mb-5">
+          <div class="sbadge fiu">Aloqa</div>
+          <h2 class="stitle fiu">Biz bilan <span class="gtxt">bog'laning</span></h2>
+          <p class="ssub fiu">Demo so'rash yoki savollaringiz uchun yozing — 24 soat ichida javob beramiz</p>
+        </div>
+        <div class="c-wrap fiu">
+          <form id="cform" novalidate>
+            <div class="row g-4">
+              <div class="col-md-6">
+                <label class="f-lbl">Ismingiz *</label>
+                <input type="text"  class="f-inp" id="fn" placeholder="Aziz Karimov" required>
+              </div>
+              <div class="col-md-6">
+                <label class="f-lbl">Telefon *</label>
+                <input type="tel"   class="f-inp" id="fp" placeholder="+998 90 000 00 00" required>
+              </div>
+              <div class="col-12">
+                <label class="f-lbl">Email *</label>
+                <input type="email" class="f-inp" id="fe" placeholder="aziz@company.uz" required>
+              </div>
+              <div class="col-12">
+                <label class="f-lbl">Xabar *</label>
+                <textarea class="f-inp" id="fm" placeholder="Demo talab qilaman, kompaniyam haqida..." required></textarea>
+              </div>
+              <div class="col-12">
+                <button type="submit" class="btn-grad" id="sbtn" style="width:100%;justify-content:center;font-size:1rem;padding:14px 28px">
+                  <span id="stxt"><i class="bi bi-send me-2"></i>Xabar yuborish</span>
+                  <span id="sload" style="display:none">
+                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>Yuborilmoqda...
+                  </span>
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================
+     CTA BANNER
+====================================================== -->
+<section id="cta" style="padding:100px 0">
+  <div class="cta-deco cd1"></div>
+  <div class="cta-deco cd2"></div>
+  <div class="cta-deco cd3"></div>
+  <div class="container position-relative">
+    <div class="text-center">
+      <h2 class="cta-title fiu">HR jarayonlarini bugun avtomatlashtiring</h2>
+      <p class="cta-sub fiu">14 kun bepul sinab ko'ring. Kredit karta kerak emas.</p>
+      <div class="cta-row fiu">
+        <input type="email" class="cta-inp" placeholder="Email manzilingizni kiriting">
+        <button class="btn-white"><i class="bi bi-rocket-takeoff"></i>Bepul boshlash</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================
+     FOOTER
+====================================================== -->
+<footer id="footer">
+  <div class="container">
+    <div class="row g-4">
+      <div class="col-lg-4 col-md-6">
+        <a href="#hero" class="f-logo"><i class="bi bi-people-fill me-2"></i>HRPay</a>
+        <p class="f-desc">Zamonaviy HR Attendance va Payroll tizimi. Xodimlaringizni samarali boshqaring, vaqtingizni tejang.</p>
+        <div class="f-soc">
+          <a href="#" title="GitHub"><i class="bi bi-github"></i></a>
+          <a href="#" title="Twitter"><i class="bi bi-twitter-x"></i></a>
+          <a href="#" title="LinkedIn"><i class="bi bi-linkedin"></i></a>
+          <a href="#" title="Instagram"><i class="bi bi-instagram"></i></a>
+          <a href="#" title="Telegram"><i class="bi bi-telegram"></i></a>
+        </div>
+      </div>
+      <div class="col-lg-2 col-md-6 col-6">
+        <div class="f-head">Mahsulot</div>
+        <ul class="f-links">
+          <li><a href="#features">Funksiyalar</a></li>
+          <li><a href="#pricing">Narxlar</a></li>
+          <li><a href="#how">Qanday ishlaydi</a></li>
+          <li><a href="#">API Hujjatlari</a></li>
+        </ul>
+      </div>
+      <div class="col-lg-2 col-md-6 col-6">
+        <div class="f-head">Kompaniya</div>
+        <ul class="f-links">
+          <li><a href="#">Biz haqimizda</a></li>
+          <li><a href="#">Blog</a></li>
+          <li><a href="#">Yangiliklar</a></li>
+          <li><a href="#">Karyera</a></li>
+        </ul>
+      </div>
+      <div class="col-lg-2 col-md-6 col-6">
+        <div class="f-head">Yordam</div>
+        <ul class="f-links">
+          <li><a href="#faq">FAQ</a></li>
+          <li><a href="#contact">Aloqa</a></li>
+          <li><a href="#">Qo'llanma</a></li>
+          <li><a href="#">Status</a></li>
+        </ul>
+      </div>
+      <div class="col-lg-2 col-md-6 col-6">
+        <div class="f-head">Huquqiy</div>
+        <ul class="f-links">
+          <li><a href="#">Maxfiylik</a></li>
+          <li><a href="#">Foydalanish shartlari</a></li>
+          <li><a href="#">Cookie</a></li>
+          <li><a href="#">Litsenziya</a></li>
+        </ul>
+      </div>
+    </div>
+    <hr class="f-divider">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+      <div class="f-copy">© 2026 HRPay. Barcha huquqlar himoyalangan.</div>
+      <div class="f-copy">🇺🇿 O'zbekistonda ishlab chiqildi</div>
+    </div>
+  </div>
+</footer>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+/* ===== NAVBAR SCROLL ===== */
+const navbar = document.getElementById('navbar');
+window.addEventListener('scroll', () => {
+  navbar.classList.toggle('scrolled', window.scrollY > 20);
+});
+
+/* ===== HAMBURGER ===== */
+const hbtn = document.getElementById('hbtn');
+const hico = document.getElementById('hico');
+const mobMenu = document.getElementById('mobMenu');
+hbtn.addEventListener('click', () => {
+  const open = mobMenu.classList.toggle('open');
+  hico.className = open ? 'bi bi-x-lg' : 'bi bi-list';
+});
+mobMenu.querySelectorAll('.nlink').forEach(l => {
+  l.addEventListener('click', () => {
+    mobMenu.classList.remove('open');
+    hico.className = 'bi bi-list';
+  });
+});
+
+/* ===== SMOOTH SCROLL ===== */
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener('click', e => {
+    const target = document.querySelector(a.getAttribute('href'));
+    if (target) {
+      e.preventDefault();
+      window.scrollTo({ top: target.getBoundingClientRect().top + window.pageYOffset - 76, behavior: 'smooth' });
+    }
+  });
+});
+
+/* ===== INTERSECTION OBSERVER (scroll animate) ===== */
+let countersDone = false;
+const io = new IntersectionObserver(entries => {
+  entries.forEach(en => {
+    if (en.isIntersecting) {
+      const delay = parseFloat(en.target.style.transitionDelay || '0') * 1000;
+      setTimeout(() => en.target.classList.add('vis'), delay);
+      io.unobserve(en.target);
+    }
+  });
+}, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.fiu').forEach(el => io.observe(el));
+
+/* ===== COUNTER ===== */
+const statsIo = new IntersectionObserver(entries => {
+  if (entries[0].isIntersecting && !countersDone) {
+    countersDone = true;
+    document.querySelectorAll('[data-target]').forEach(el => {
+      const target  = parseFloat(el.dataset.target);
+      const suffix  = el.dataset.suffix || '';
+      const dec     = parseInt(el.dataset.dec || '0');
+      const dur     = 2000, step = 16;
+      const inc     = target / (dur / step);
+      let cur       = 0;
+      const t = setInterval(() => {
+        cur += inc;
+        if (cur >= target) { cur = target; clearInterval(t); }
+        el.textContent = cur.toFixed(dec) + suffix;
+      }, step);
+    });
+  }
+}, { threshold: 0.3 });
+const statsEl = document.getElementById('stats');
+if (statsEl) statsIo.observe(statsEl);
+
+/* ===== PRICE TOGGLE ===== */
+const ptog = document.getElementById('ptog');
+const mlbl = document.getElementById('mlbl');
+const ylbl = document.getElementById('ylbl');
+ptog.addEventListener('change', () => {
+  const y = ptog.checked;
+  mlbl.style.color = y ? 'var(--txt2)' : 'var(--a1)';
+  ylbl.style.color = y ? 'var(--a1)' : 'var(--txt2)';
+  document.querySelectorAll('.pv').forEach(el => {
+    el.textContent = y ? el.dataset.y : el.dataset.m;
+  });
+});
+
+/* ===== TOAST ===== */
+function toast(msg, type) {
+  const icons = { success: 'bi-check-circle-fill', error: 'bi-x-circle-fill', warning: 'bi-exclamation-triangle-fill' };
+  const box = document.getElementById('toast-box');
+  const el = document.createElement('div');
+  el.className = `toast-item ${type}`;
+  el.innerHTML = `<i class="bi ${icons[type]} ti-ico"></i><span>${msg}</span>`;
+  box.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 320); }, 4200);
+}
+
+/* ===== CONTACT FORM ===== */
+document.getElementById('cform').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = document.getElementById('fn').value.trim();
+  const phone = document.getElementById('fp').value.trim();
+  const email = document.getElementById('fe').value.trim();
+  const msg   = document.getElementById('fm').value.trim();
+
+  if (!name || !phone || !email || !msg) {
+    toast("Iltimos, barcha maydonlarni to'ldiring!", 'warning'); return;
+  }
+
+  const sbtn  = document.getElementById('sbtn');
+  const stxt  = document.getElementById('stxt');
+  const sload = document.getElementById('sload');
+  sbtn.disabled = true;
+  stxt.style.display  = 'none';
+  sload.style.display = 'inline-flex';
+
+  const BOT   = '[TELEGRAM_BOT_TOKEN]';
+  const CHAT  = '[TELEGRAM_CHAT_ID]';
+  const text  = `🏢 *Yangi so'rov — HRPay*\n\n👤 *Ism:* ${name}\n📞 *Telefon:* ${phone}\n📧 *Email:* ${email}\n💬 *Xabar:*\n${msg}`;
+
+  try {
+    if (!navigator.onLine) throw new Error('offline');
+    const res  = await fetch(`https://api.telegram.org/bot${BOT}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: CHAT, text, parse_mode: 'Markdown' })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      toast("Xabar muvaffaqiyatli yuborildi! Tez orada bog'lanamiz.", 'success');
+      ['fn','fp','fe','fm'].forEach(id => document.getElementById(id).value = '');
+    } else {
+      toast("Xabar yuborishda xatolik. Qaytadan urinib ko'ring.", 'error');
+    }
+  } catch (err) {
+    if (err.message === 'offline' || !navigator.onLine) {
+      toast("Internet aloqasi yo'q. Tarmoqni tekshirib qaytadan urinib ko'ring.", 'warning');
+    } else {
+      toast("Server bilan bog'lanishda muammo. Telefon orqali murojaat qiling.", 'error');
+    }
+  } finally {
+    sbtn.disabled = false;
+    stxt.style.display  = 'inline';
+    sload.style.display = 'none';
+  }
+});
+</script>
+</body>
+</html>

@@ -1337,6 +1337,29 @@ export class AttendanceService {
     await this.markDailyAbsent();
   }
 
+  // ======================================================
+  // SUMMARY — status bo'yicha count (history stats uchun)
+  // ======================================================
+  async getSummary(params: { schoolId: string; startDate?: string; endDate?: string }) {
+    const where: any = { schoolId: params.schoolId };
+
+    if (params.startDate || params.endDate) {
+      where.date = {
+        gte: params.startDate ? new Date(`${params.startDate}T00:00:00`) : new Date('1970-01-01'),
+        lte: params.endDate  ? new Date(`${params.endDate}T23:59:59.999`) : new Date(),
+      };
+    }
+
+    const [present, late, absent, total] = await Promise.all([
+      this.prisma.attendance.count({ where: { ...where, status: 'PRESENT' } }),
+      this.prisma.attendance.count({ where: { ...where, status: 'LATE'    } }),
+      this.prisma.attendance.count({ where: { ...where, status: 'ABSENT'  } }),
+      this.prisma.attendance.count({ where }),
+    ]);
+
+    return { present, late, absent, total };
+  }
+
   // ── Bugungi LATE → PRESENT (terminal kech ishga tushgan kun uchun) ───────────
   async fixLateToPresent(schoolId: string, dateStr?: string) {
     const target = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
