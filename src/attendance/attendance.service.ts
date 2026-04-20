@@ -281,29 +281,31 @@ export class AttendanceService {
     let isLate = false;
     let lateMinutes = 0;
 
-    if (isStudent) {
+    if (isStudent && hasShiftConfig) {
+      // ─── Sinf smena/vaqt belgilangan — aniq LATE hisoblash ───────────────
       let thresholdMinutes: number;
 
-      if (hasShiftConfig) {
-        // Sinf konfiguratsiyasi bor — aniq hisoblash
-        if (classInfo.startTime) {
-          const [h, m] = (classInfo.startTime as string).split(':').map(Number);
-          thresholdMinutes = h * 60 + (m || 0);
-        } else if (classInfo.shift === 2) {
-          thresholdMinutes = 13 * 60; // 13:00 — tushki smena
-        } else {
-          thresholdMinutes = 8 * 60 + 30; // 08:30 — ertalabki smena (shift=1)
-        }
+      if (classInfo.startTime) {
+        // startTime aniq berilgan (masalan "08:00") — Toshkent soatida saqlanadi
+        const [h, m] = (classInfo.startTime as string).split(':').map(Number);
+        // startTime Bishkek vaqtida kiritilgan deb hisoblaymiz → Toshkentga o'giramiz (-1 soat)
+        const bishkekMinutes = h * 60 + (m || 0);
+        const tashkentMinutes = bishkekMinutes - 60; // UTC+6 → UTC+5
+        thresholdMinutes = tashkentMinutes + LATE_GRACE_MINUTES;
+      } else if (classInfo.shift === 2) {
+        // 2-smena: 13:00 Bishkek = 12:00 Toshkent, +30 min grace = 12:30 Toshkent
+        thresholdMinutes = 12 * 60 + LATE_GRACE_MINUTES;
       } else {
-        // Sinf konfiguratsiyasi yo'q — global chegara
-        // 08:30 Bishkek (UTC+6) = 07:30 Toshkent (UTC+5)
+        // 1-smena (yoki boshqa): 08:00 Bishkek = 07:00 Toshkent, +30 min = 07:30 Toshkent
         thresholdMinutes = SCHOOL_START_HOUR * 60 + LATE_GRACE_MINUTES;
       }
 
       isLate = nowTotalMinutes > thresholdMinutes;
       lateMinutes = isLate ? nowTotalMinutes - thresholdMinutes : 0;
     }
-    // Teacher/Director → always PRESENT (isLate = false)
+    // Sinf smena YO'Q → har doim PRESENT
+    // (2-smenali o'quvchi 11:30 da kelsa noto'g'ri LATE bo'lmasligi uchun)
+    // Teacher/Director → always PRESENT
 
     let attendance: any;
 
