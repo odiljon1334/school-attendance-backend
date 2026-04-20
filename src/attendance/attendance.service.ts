@@ -215,6 +215,12 @@ export class AttendanceService {
       return this.handleCheckIn({ person, now, deviceId, capturePhoto, existing: null });
     }
 
+    // CASE 1.5: Bugungi yozuv bor lekin ABSENT (cron tomonidan yaratilgan)
+    // yoki checkInTime = null → yangi check-in sifatida update qilamiz
+    if (existing.status === 'ABSENT' || !existing.checkInTime) {
+      return this.handleCheckIn({ person, now, deviceId, capturePhoto, existing });
+    }
+
     // CASE 2: Maktabda (hali chiqmagan)
     if (!existing.checkOutTime) {
       const timeSinceCheckIn = now.getTime() - existing.checkInTime.getTime();
