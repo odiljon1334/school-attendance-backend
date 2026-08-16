@@ -1,4 +1,9 @@
-import { Injectable, UnauthorizedException, ConflictException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+  Logger,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
@@ -105,7 +110,10 @@ export class AuthService {
     }
 
     // Verify password
-    const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
+    const isPasswordValid = await bcrypt.compare(
+      loginDto.password,
+      user.password,
+    );
     if (!isPasswordValid) {
       await this.auditLog.log({
         action: 'LOGIN_FAILED',
@@ -131,6 +139,7 @@ export class AuthService {
     const token = this.generateToken(user);
 
     // Remove password from response
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password, ...userWithoutPassword } = user;
 
     return {
@@ -169,7 +178,10 @@ export class AuthService {
     }
 
     // Verify password
-    const isPasswordValid = await bcrypt.compare(loginDto.password, school.password);
+    const isPasswordValid = await bcrypt.compare(
+      loginDto.password,
+      school.password,
+    );
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -188,6 +200,7 @@ export class AuthService {
     const token = this.generateSchoolToken(school);
 
     // Remove password from response
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password, ...schoolWithoutPassword } = school;
 
     return {
@@ -291,7 +304,11 @@ export class AuthService {
     };
   }
 
-  async changePassword(userId: string, oldPassword: string, newPassword: string) {
+  async changePassword(
+    userId: string,
+    oldPassword: string,
+    newPassword: string,
+  ) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
     });
@@ -321,7 +338,11 @@ export class AuthService {
   // ==========================================
   // ✅ NEW: CHANGE SCHOOL PASSWORD
   // ==========================================
-  async changeSchoolPassword(schoolId: string, oldPassword: string, newPassword: string) {
+  async changeSchoolPassword(
+    schoolId: string,
+    oldPassword: string,
+    newPassword: string,
+  ) {
     const school = await this.prisma.school.findUnique({
       where: { id: schoolId },
     });
@@ -359,8 +380,9 @@ export class AuthService {
     }
 
     // Generate 8-char alphanumeric temp password
-    const tempPassword = Math.random().toString(36).slice(-4).toUpperCase()
-      + Math.random().toString(36).slice(-4);
+    const tempPassword =
+      Math.random().toString(36).slice(-4).toUpperCase() +
+      Math.random().toString(36).slice(-4);
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
     await this.prisma.user.update({
@@ -374,7 +396,7 @@ export class AuthService {
     return {
       ok: true,
       message: 'Password reset successfully',
-      tempPassword,   // admin sees this and tells the user
+      tempPassword, // admin sees this and tells the user
       username,
     };
   }

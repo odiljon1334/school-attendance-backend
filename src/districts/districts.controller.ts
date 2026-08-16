@@ -55,7 +55,10 @@ export class DistrictsController {
 
   @Patch(':id')
   @Roles(UserRole.SUPER_ADMIN)
-  update(@Param('id') id: string, @Body() updateDistrictDto: UpdateDistrictDto) {
+  update(
+    @Param('id') id: string,
+    @Body() updateDistrictDto: UpdateDistrictDto,
+  ) {
     return this.districtsService.update(id, updateDistrictDto);
   }
 

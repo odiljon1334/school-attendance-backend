@@ -9,7 +9,7 @@ datasource db {
 
 enum UserRole {
   SUPER_ADMIN
-  MINISTRY          // Вазирлик — только карта и статистика
+  MINISTRY
   DISTRICT_ADMIN
   SCHOOL_ADMIN
   DIRECTOR
@@ -37,9 +37,6 @@ enum AttendanceStatus {
   HOLIDAY
 }
 
-//
-// ✅ Subscription billing uchun yangi enum
-//
 enum BillingPlan {
   MONTHLY
   YEARLY
@@ -69,6 +66,23 @@ enum TeacherType {
   DIRECTOR
 }
 
+// ✅ YANGI — kamera AI uchun
+enum CameraEventType {
+  CLASSROOM_PRESENCE
+  CLASSROOM_LEAVE
+  UNKNOWN_PERSON
+}
+
+enum EmotionType {
+  HAPPY
+  NEUTRAL
+  SAD
+  ANGRY
+  SURPRISED
+  FEARFUL
+  DISGUSTED
+}
+
 model User {
   id       String     @id @default(uuid())
   username String     @unique
@@ -86,14 +100,14 @@ model User {
 }
 
 model District {
-  id     String @id @default(uuid())
-  name   String
-  nameRu String?       // Название на русском (напр. "Чуйская область")
-  region String
-  code   String @unique
-  osmId  String?       // OpenStreetMap admin_level relation ID (map matching)
-  lat    Float?        // Centre latitude
-  lng    Float?        // Centre longitude
+  id      String  @id @default(uuid())
+  name    String
+  nameRu  String?
+  region  String
+  code    String  @unique
+  osmId   String?
+  lat     Float?
+  lng     Float?
 
   schools School[]
 
@@ -107,18 +121,18 @@ model School {
   district   District? @relation(fields: [districtId], references: [id])
 
   name    String
-  nameRu  String?       // Название на русском
+  nameRu  String?
   code    String  @unique
   address String
   phone   String?
   email   String?
 
-  hasTurnstile Boolean @default(false)  // Турникет/Hikvision terminal bor-yo'q
-  lat          Float?                   // Koordinata (xarita uchun)
+  hasTurnstile Boolean @default(false)
+  lat          Float?
   lng          Float?
 
-  username String? @unique
-  password String?
+  username             String?  @unique
+  password             String?
   credentialsChangedAt DateTime?
 
   classes          Class[]
@@ -127,8 +141,12 @@ model School {
   attendances      Attendance[]
   hikvisionDevices HikvisionDevice[]
   cameras          SchoolCamera[]
+  enrollCounter    EnrollCounter?
 
-  enrollCounter EnrollCounter?
+  // ✅ YANGI
+  faceEmbeddings     FaceEmbedding[]
+  classroomPresences ClassroomPresence[]
+  cameraEvents       CameraEvent[]
 
   telegramSubscriptions TelegramSubscription[]
   whatsappSubscriptions WhatsappSubscription[]
@@ -149,9 +167,9 @@ model Class {
   section      String
   academicYear String
 
-  shift     Int?    // 1 = birinchi smena, 2 = ikkinchi smena
-  startTime String? // "08:30"
-  endTime   String? // "13:30"
+  shift     Int?
+  startTime String?
+  endTime   String?
 
   students       Student[]
   teacherClasses TeacherClass[]
@@ -189,30 +207,34 @@ model Student {
   photo        String?
   facePersonId String? @unique
   enrollNumber String?
-
-  importKey String? @unique
+  importKey    String? @unique
 
   isSmsEnabled    Boolean   @default(true)
   smsPaidUntil    DateTime?
   smsPaymentType  String?
   smsReminderSent Boolean   @default(false)
 
-  isLowIncome Boolean @default(false)
-  billingPlan       BillingPlan @default(MONTHLY)
-  billingPaidUntil  DateTime?
+  isLowIncome      Boolean     @default(false)
+  billingPlan      BillingPlan @default(MONTHLY)
+  billingPaidUntil DateTime?
 
   parents     StudentParent[]
   attendances Attendance[]
   payments    Payment[]
 
+  // ✅ YANGI
+  faceEmbedding      FaceEmbedding?
+  classroomPresences ClassroomPresence[]
+  cameraEvents       CameraEvent[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([schoolId, enrollNumber])
-  @@index([schoolId])                   // findAll(schoolId) uchun
-  @@index([schoolId, classId])          // findAll(schoolId, classId) uchun
+  @@index([schoolId])
+  @@index([schoolId, classId])
   @@index([classId])
-  @@index([lastName])                   // orderBy lastName uchun
+  @@index([lastName])
   @@index([billingPaidUntil])
   @@index([isSmsEnabled])
   @@index([smsPaidUntil])
@@ -223,11 +245,9 @@ model StudentParent {
   studentId String
   parentId  String
 
-  notifySms Boolean @default(false)
-
-  isBillingPayer Boolean @default(false)
-
-  relationship ParentRelation @default(PARENT)
+  notifySms      Boolean        @default(false)
+  isBillingPayer Boolean        @default(false)
+  relationship   ParentRelation @default(PARENT)
 
   createdAt DateTime @default(now())
 
@@ -246,10 +266,10 @@ model Teacher {
   userId String? @unique
   user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  type TeacherType @default(TEACHER)
+  type     TeacherType @default(TEACHER)
+  schoolId String?
+  school   School?     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
 
-  schoolId  String?
-  school    School?  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   firstName String?
   lastName  String?
   phone     String?
@@ -278,16 +298,21 @@ model Teacher {
 
   attendances Attendance[]
 
-  telegramSubscriptions  TelegramSubscription[]
-  whatsappSubscriptions  WhatsappSubscription[]
+  // ✅ YANGI
+  faceEmbedding      FaceEmbedding?
+  classroomPresences ClassroomPresence[]
+  cameraEvents       CameraEvent[]
+
+  telegramSubscriptions TelegramSubscription[]
+  whatsappSubscriptions WhatsappSubscription[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([telegramId])
   @@unique([schoolId, enrollNumber])
-  @@index([schoolId])           // getAll(schoolId) uchun
-  @@index([schoolId, type])     // findAll(schoolId, type) uchun
+  @@index([schoolId])
+  @@index([schoolId, type])
   @@index([facePersonId])
   @@index([type])
 }
@@ -317,9 +342,8 @@ model TeacherSchedule {
   hoursPerDay   Float
   daysPerWeek   Int
   hoursPerMonth Float
-
-  baseSalary Float
-  hourlyRate Float
+  baseSalary    Float
+  hourlyRate    Float
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -332,20 +356,17 @@ model TeacherAttendance {
   teacherId String
   teacher   Teacher @relation("TeacherPayrollAttendance", fields: [teacherId], references: [id], onDelete: Cascade)
 
-  date DateTime
-
+  date         DateTime
   checkInTime  DateTime?
   checkOutTime DateTime?
-
   workDuration Float?
   isLate       Boolean @default(false)
   lateMinutes  Int     @default(0)
   leftEarly    Boolean @default(false)
   earlyMinutes Int     @default(0)
   isAbsent     Boolean @default(false)
-
-  status AttendanceStatus @default(ABSENT)
-  notes  String?
+  status       AttendanceStatus @default(ABSENT)
+  notes        String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -360,32 +381,25 @@ model TeacherPayroll {
   teacherId String
   teacher   Teacher @relation("TeacherPayroll", fields: [teacherId], references: [id], onDelete: Cascade)
 
-  month String
-
-  expectedDays  Int
-  expectedHours Float
-  baseSalary    Float
-
+  month            String
+  expectedDays     Int
+  expectedHours    Float
+  baseSalary       Float
   totalDaysWorked  Int
   totalHoursWorked Float
-
-  lateDays          Int @default(0)
-  lateMinutes       Int @default(0)
-  earlyLeaveDays    Int @default(0)
-  earlyLeaveMinutes Int @default(0)
-  absentDays        Int @default(0)
-
-  missedHours   Float
-  penaltyAmount Float
-
-  bonusAmount Float   @default(0)
-  bonusReason String?
-
-  actualSalary Float
-
-  isPaid        Boolean   @default(false)
-  paidAt        DateTime?
-  paymentMethod String?
+  lateDays         Int   @default(0)
+  lateMinutes      Int   @default(0)
+  earlyLeaveDays   Int   @default(0)
+  earlyLeaveMinutes Int  @default(0)
+  absentDays       Int   @default(0)
+  missedHours      Float
+  penaltyAmount    Float
+  bonusAmount      Float   @default(0)
+  bonusReason      String?
+  actualSalary     Float
+  isPaid           Boolean   @default(false)
+  paidAt           DateTime?
+  paymentMethod    String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -431,16 +445,16 @@ model Attendance {
   teacherId String?
   teacher   Teacher? @relation(fields: [teacherId], references: [id])
 
-  date         DateTime
-  status       AttendanceStatus
-  checkInTime  DateTime?
-  checkOutTime DateTime?
-  checkInPhoto  String?          // Фото при входе (от терминала)
-  checkOutPhoto String?          // Фото при выходе
-  lateMinutes  Int?
-  lateCount    Int              @default(0)
-  deviceId     String?
-  notes        String?
+  date          DateTime
+  status        AttendanceStatus
+  checkInTime   DateTime?
+  checkOutTime  DateTime?
+  checkInPhoto  String?
+  checkOutPhoto String?
+  lateMinutes   Int?
+  lateCount     Int      @default(0)
+  deviceId      String?
+  notes         String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -448,12 +462,9 @@ model Attendance {
   @@unique([studentId, date])
   @@unique([teacherId, date])
   @@index([schoolId, date])
-  @@index([createdAt])            // 2-ойlik tozalash uchun
+  @@index([createdAt])
 }
 
-//
-// Payment endi "subscription invoice" sifatida ishlaydi
-//
 model Payment {
   id        String  @id @default(uuid())
   studentId String
@@ -467,17 +478,14 @@ model Payment {
   paidDate  DateTime?
   status    PaymentStatus @default(PENDING)
 
-  waiveReason PaymentWaiveReason?
-  waivedAt    DateTime?
-
-  externalOrderId  String?   // Balance.kg orderId (webhook matchi uchun)
-  transactionId    String?   // Balance.kg transactionId
-  paymentMethod    String?   // MBANK | ODENGI | ELCART | QR | CASH | BANK_TRANSFER
-
-  notifiedAt  DateTime?
-  notifyCount Int @default(0)
-
-  notes     String?
+  waiveReason     PaymentWaiveReason?
+  waivedAt        DateTime?
+  externalOrderId String?
+  transactionId   String?
+  paymentMethod   String?
+  notifiedAt      DateTime?
+  notifyCount     Int @default(0)
+  notes           String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -492,17 +500,14 @@ model Notification {
   id            String @id @default(uuid())
   recipientType String
   recipientId   String
-
-  type    String
-  title   String
-  message String
-  sentVia String
-
-  isRead    Boolean   @default(false)
-  readAt    DateTime?
-
-  isSent Boolean   @default(false)
-  sentAt DateTime?
+  type          String
+  title         String
+  message       String
+  sentVia       String
+  isRead        Boolean   @default(false)
+  readAt        DateTime?
+  isSent        Boolean   @default(false)
+  sentAt        DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -514,11 +519,10 @@ model TelegramSession {
   id         String @id @default(uuid())
   chatId     String @unique
   telegramId String
-
-  userId   String?
-  userType String?
-  state    String  @default("START")
-  data     Json?
+  userId     String?
+  userType   String?
+  state      String  @default("START")
+  data       Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -544,13 +548,14 @@ model HikvisionDevice {
   school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
 
   name       String
-  deviceId   String              @unique
+  deviceId   String   @unique
   ipAddress  String
-  port       Int                 @default(80)
+  port       Int      @default(80)
   username   String
   password   String
-  isActive   Boolean             @default(true)
-  lastSeenAt DateTime?           // Последний раз онлайн (webhook)
+  isActive   Boolean  @default(true)
+  lastSeenAt DateTime?
+
   identities TurnstileIdentity[]
 
   createdAt DateTime @default(now())
@@ -565,8 +570,7 @@ enum TurnstilePersonType {
 }
 
 model TurnstileIdentity {
-  id String @id @default(uuid())
-
+  id         String @id @default(uuid())
   employeeNo String
 
   deviceId String
@@ -595,12 +599,11 @@ model TurnstileIdentity {
 model EnrollCounter {
   id       String @id @default(uuid())
   schoolId String @unique
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
 
-  // har bir school uchun alohida sanagich
   studentSeq Int @default(0)
-  staffSeq   Int @default(0) // teacher + director
+  staffSeq   Int @default(0)
 
-  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -613,13 +616,12 @@ model SystemSettings {
   updatedAt       DateTime @updatedAt
 }
 
-// ─── AuditLog ────────────────────────────────────────────────────────────────
 model AuditLog {
   id       String  @id @default(uuid())
-  action   String  // "LOGIN", "LOGIN_FAILED", "TERMINAL_SCAN", "STUDENT_CREATE", ...
-  entity   String  // "Auth", "Student", "Teacher", "Attendance", "Payment"
+  action   String
+  entity   String
   entityId String?
-  details  Json?   // { name, before, after, reason, ... }
+  details  Json?
   ip       String?
   userId   String?
   schoolId String?
@@ -632,7 +634,6 @@ model AuditLog {
   @@index([entity, entityId])
 }
 
-// ─── Messaging Subscriptions ─────────────────────────────────────────────────
 model TelegramSubscription {
   id       String   @id @default(uuid())
   chatId   String   @unique
@@ -653,12 +654,13 @@ model TelegramSubscription {
 }
 
 model WhatsappSubscription {
-  id    String   @id @default(uuid())
-  phone String   @unique
-  chatId String?
-  name  String?
-  role  UserRole @default(PARENT)
-  isActive Boolean @default(true)
+  id            String   @id @default(uuid())
+  phone         String   @unique
+  chatId        String?
+  name          String?
+  role          UserRole @default(PARENT)
+  isActive      Boolean  @default(true)
+  lastMessageAt DateTime?
 
   schoolId  String?
   school    School?  @relation(fields: [schoolId], references: [id], onDelete: SetNull)
@@ -667,26 +669,111 @@ model WhatsappSubscription {
   teacherId String?
   teacher   Teacher? @relation(fields: [teacherId], references: [id], onDelete: SetNull)
 
-  lastMessageAt DateTime?
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-// ─── School Cameras (MediaMTX / RTSP stream) ─────────────────────────────────
 model SchoolCamera {
   id       String @id @default(uuid())
   schoolId String
   school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
 
-  name        String
-  rtspUrl     String?   // rtsp://user:pass@ip:554/...
-  streamPath  String?   // MediaMTX path, напр. "school1/cam1"
-  isActive    Boolean   @default(true)
-  location    String?   // "Входная дверь", "Коридор" и т.д.
+  name       String
+  rtspUrl    String?
+  streamPath String?
+  isActive   Boolean @default(true)
+  location   String?
+
+  // ✅ YANGI
+  classroomPresences ClassroomPresence[]
+  cameraEvents       CameraEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([schoolId])
+}
+
+// ─── ✅ YANGI: Face Embedding ─────────────────────────────────────────────────
+// Har bir o'quvchi/o'qituvchi uchun InsightFace ArcFace 512-o'lchamli vektor
+model FaceEmbedding {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  studentId String?  @unique
+  student   Student? @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  teacherId String?  @unique
+  teacher   Teacher? @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  embedding   Float[]  // 512-o'lchamli vektor
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([schoolId])
+}
+
+// ─── ✅ YANGI: Classroom Presence ─────────────────────────────────────────────
+// Kamera sinf xonasida kimni ko'rdi, qancha vaqt, qanday kayfiyatda
+model ClassroomPresence {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  cameraId String
+  camera   SchoolCamera @relation(fields: [cameraId], references: [id], onDelete: Cascade)
+
+  studentId String?
+  student   Student? @relation(fields: [studentId], references: [id], onDelete: SetNull)
+
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+
+  firstSeenAt DateTime
+  lastSeenAt  DateTime
+  durationSec Int      @default(0)  // Qancha vaqt ko'rindi (soniya)
+  confidence  Float                 // Yuz tanish foizi
+  emotion     EmotionType?          // Kayfiyat
+  attention   Float?                // Diqqat darajasi 0.0-1.0
+
+  date DateTime  // Kun boshi — statistika uchun
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([schoolId, date])
+  @@index([cameraId, date])
+  @@index([studentId, date])
+  @@index([teacherId, date])
+}
+
+// ─── ✅ YANGI: Camera Event ───────────────────────────────────────────────────
+// Har bir kamera eventi: keldi, ketdi, begona shaxs
+// Snapshot cron bilan o'chiriladi (kunlik/haftalik)
+model CameraEvent {
+  id       String @id @default(uuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  cameraId String
+  camera   SchoolCamera @relation(fields: [cameraId], references: [id], onDelete: Cascade)
+
+  type       CameraEventType
+  snapshot   String?          // base64 thumbnail ~50KB — cron bilan tozalanadi
+  confidence Float?
+  detectedAt DateTime
+
+  studentId String?
+  student   Student? @relation(fields: [studentId], references: [id], onDelete: SetNull)
+
+  teacherId String?
+  teacher   Teacher? @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([schoolId, detectedAt])
+  @@index([cameraId, detectedAt])
+  @@index([type])
+  @@index([createdAt])  // cron cleanup uchun
 }

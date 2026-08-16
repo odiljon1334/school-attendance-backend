@@ -27,7 +27,28 @@ export class CamerasService {
     private prisma: PrismaService,
     private config: ConfigService,
   ) {
-    this.mediamtxHost = this.config.get('MEDIAMTX_HLS_HOST', 'http://localhost:8888');
+    this.mediamtxHost = this.config.get(
+      'MEDIAMTX_HLS_HOST',
+      'http://localhost:8888',
+    );
+  }
+
+  async findActiveCameras(schoolId?: string) {
+    const where: any = { isActive: true, rtspUrl: { not: null } };
+    if (schoolId) where.schoolId = schoolId;
+
+    const cams = await this.prisma.schoolCamera.findMany({
+      where,
+      select: {
+        id: true,
+        schoolId: true,
+        name: true,
+        rtspUrl: true,
+        streamPath: true,
+        location: true,
+      },
+    });
+    return cams;
   }
 
   async findBySchool(schoolId: string) {
@@ -35,7 +56,7 @@ export class CamerasService {
       where: { schoolId },
       orderBy: { createdAt: 'asc' },
     });
-    return cams.map(c => this.withLiveUrl(c));
+    return cams.map((c) => this.withLiveUrl(c));
   }
 
   async findOne(id: string) {
@@ -51,7 +72,10 @@ export class CamerasService {
 
   async update(id: string, dto: UpdateCameraDto) {
     await this.findOne(id);
-    const cam = await this.prisma.schoolCamera.update({ where: { id }, data: dto });
+    const cam = await this.prisma.schoolCamera.update({
+      where: { id },
+      data: dto,
+    });
     return this.withLiveUrl(cam);
   }
 

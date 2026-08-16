@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule } from '@nestjs/config';
@@ -31,6 +30,8 @@ import { AuditLogModule } from './audit-log/audit-log.module';
 import { MessagingSubscriptionsModule } from './messaging-subscriptions/messaging-subscriptions.module';
 import { CamerasModule } from './cameras/cameras.module';
 import { MapModule } from './map/map.module';
+import { AiModule } from './ai/ai.module';
+import { CameraEventsModule } from './camera-events/camera-events.module';
 
 @Module({
   imports: [
@@ -42,8 +43,8 @@ import { MapModule } from './map/map.module';
     // Login: alohida @Throttle({ short: { limit: 5 } }) bilan 5/60s cheklangan
     // Global: 120/60s = 2 req/s average — normal dashboard use uchun yetarli
     ThrottlerModule.forRoot([
-      { name: 'short', ttl: 60000,   limit: 120 },  // 120 req/daqiqa
-      { name: 'long',  ttl: 3600000, limit: 1000 }, // 1000 req/soat
+      { name: 'short', ttl: 60000, limit: 120 }, // 120 req/daqiqa
+      { name: 'long', ttl: 3600000, limit: 1000 }, // 1000 req/soat
     ]),
     PrismaModule,
     AuthModule,
@@ -73,6 +74,8 @@ import { MapModule } from './map/map.module';
     MessagingSubscriptionsModule,
     CamerasModule,
     MapModule,
+    AiModule,
+    CameraEventsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

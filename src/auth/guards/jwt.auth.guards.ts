@@ -1,8 +1,13 @@
-import { Injectable, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  ExecutionContext,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Observable } from 'rxjs';
+import { Reflector } from '@nestjs/core';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
-// Public routelar — JWT skip
 const PUBLIC_PATHS = [
   '/auth/login',
   '/auth/school/login',
@@ -14,19 +19,28 @@ const PUBLIC_PATHS = [
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
-  canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
+  constructor(private reflector: Reflector) {
+    super();
+  }
+
+  canActivate(
+    context: ExecutionContext,
+  ): boolean | Promise<boolean> | Observable<boolean> {
+    // @Public() decorator tekshiruvi
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) return true;
+
     const request = context.switchToHttp().getRequest();
     const path: string = request.path ?? '';
-
-    // Public routelarda JWT tekshirmaymiz
-    if (PUBLIC_PATHS.some((p) => path.startsWith(p))) {
-      return true;
-    }
+    if (PUBLIC_PATHS.some((p) => path.startsWith(p))) return true;
 
     return super.canActivate(context);
   }
 
-  handleRequest(err: any, user: any, info: any) {
+  handleRequest(err: any, user: any) {
     if (err || !user) {
       throw err || new UnauthorizedException('Invalid or missing token');
     }

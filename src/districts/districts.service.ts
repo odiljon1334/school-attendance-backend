@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDistrictDto } from './dto/district.dto';
 import { UpdateDistrictDto } from './dto/district.dto';
@@ -14,7 +18,9 @@ export class DistrictsService {
     });
 
     if (existing) {
-      throw new ConflictException(`District with code ${createDistrictDto.code} already exists`);
+      throw new ConflictException(
+        `District with code ${createDistrictDto.code} already exists`,
+      );
     }
 
     return this.prisma.district.create({
@@ -91,7 +97,9 @@ export class DistrictsService {
       });
 
       if (codeExists) {
-        throw new ConflictException(`District with code ${updateDistrictDto.code} already exists`);
+        throw new ConflictException(
+          `District with code ${updateDistrictDto.code} already exists`,
+        );
       }
     }
 
@@ -138,12 +146,17 @@ export class DistrictsService {
 
     const districts = await this.prisma.district.findMany({
       select: {
-        id: true, name: true, code: true, region: true,
+        id: true,
+        name: true,
+        code: true,
+        region: true,
         _count: { select: { schools: true } },
         schools: {
           select: {
             id: true,
-            _count: { select: { students: true, teachers: true, classes: true } },
+            _count: {
+              select: { students: true, teachers: true, classes: true },
+            },
           },
         },
       },
@@ -172,23 +185,34 @@ export class DistrictsService {
     const presentByDistrict = new Map<string, number>();
     for (const a of attendanceRecords) {
       const distId = schoolToDistrict.get(a.schoolId);
-      if (distId) presentByDistrict.set(distId, (presentByDistrict.get(distId) ?? 0) + 1);
+      if (distId)
+        presentByDistrict.set(distId, (presentByDistrict.get(distId) ?? 0) + 1);
     }
 
     return districts.map((d) => {
-      const totalStudents = d.schools.reduce((s, sc) => s + sc._count.students, 0);
+      const totalStudents = d.schools.reduce(
+        (s, sc) => s + sc._count.students,
+        0,
+      );
       const present = presentByDistrict.get(d.id) ?? 0;
       return {
-        id: d.id, name: d.name, code: d.code, region: d.region,
+        id: d.id,
+        name: d.name,
+        code: d.code,
+        region: d.region,
         counts: {
           totalSchools: d._count.schools,
           totalStudents,
           totalTeachers: d.schools.reduce((s, sc) => s + sc._count.teachers, 0),
-          totalClasses:  d.schools.reduce((s, sc) => s + sc._count.classes,  0),
+          totalClasses: d.schools.reduce((s, sc) => s + sc._count.classes, 0),
         },
         todayAttendance: {
-          present, total: totalStudents,
-          rate: totalStudents > 0 ? ((present / totalStudents) * 100).toFixed(1) : '0',
+          present,
+          total: totalStudents,
+          rate:
+            totalStudents > 0
+              ? ((present / totalStudents) * 100).toFixed(1)
+              : '0',
         },
       };
     });
@@ -224,9 +248,18 @@ export class DistrictsService {
 
     // Calculate totals
     const totalSchools = district._count.schools;
-    const totalStudents = district.schools.reduce((sum, school) => sum + school._count.students, 0);
-    const totalTeachers = district.schools.reduce((sum, school) => sum + school._count.teachers, 0);
-    const totalClasses = district.schools.reduce((sum, school) => sum + school._count.classes, 0);
+    const totalStudents = district.schools.reduce(
+      (sum, school) => sum + school._count.students,
+      0,
+    );
+    const totalTeachers = district.schools.reduce(
+      (sum, school) => sum + school._count.teachers,
+      0,
+    );
+    const totalClasses = district.schools.reduce(
+      (sum, school) => sum + school._count.classes,
+      0,
+    );
 
     // Get today's attendance
     const today = new Date();
@@ -245,12 +278,13 @@ export class DistrictsService {
     });
 
     const presentCount = attendanceRecords.filter(
-      a => a.status === 'PRESENT' || a.status === 'LATE',
+      (a) => a.status === 'PRESENT' || a.status === 'LATE',
     ).length;
 
-    const attendanceRate = totalStudents > 0 
-      ? ((presentCount / totalStudents) * 100).toFixed(1) 
-      : '0';
+    const attendanceRate =
+      totalStudents > 0
+        ? ((presentCount / totalStudents) * 100).toFixed(1)
+        : '0';
 
     return {
       totalSchools,

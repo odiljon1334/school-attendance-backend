@@ -1,6 +1,6 @@
-import { NestFactory } from '@nestjs/core';
+import { NestFactory, Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { RequestMethod, ValidationPipe } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { webcrypto } from 'node:crypto';
 import * as express from 'express';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -20,13 +20,15 @@ async function bootstrap() {
         'http://localhost:4173',
         'http://192.168.1.3:3000',
         'http://192.168.0.213:5173',
+        'https://backapi.jprq.live',
+        'https://*.jprq.live',
       ];
 
   // Gzip compression — response hajmini 2-5x kamaytiradi
   app.use(compression());
 
   app.enableCors({
-    origin: corsOrigins,
+    origin: process.env.NODE_ENV === 'production' ? corsOrigins : true,
     credentials: true,
     exposedHeaders: ['Content-Disposition'],
   });
@@ -59,7 +61,8 @@ async function bootstrap() {
     express.raw({ type: '*/*', limit: '25mb' }),
   );
 
-  app.useGlobalGuards(new JwtAuthGuard());
+  const reflector = app.get(Reflector);
+  app.useGlobalGuards(new JwtAuthGuard(reflector));
 
   // ✅ 2. Keyin JSON parser
   // 10mb — 400×400 JPEG base64 ~70KB, hatto 4K foto base64 ~8MB yetarli

@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TurnstileService } from '../turnstile/turnstile.service';
 import { RedisService } from '../redis/redis.service';
@@ -44,17 +48,33 @@ export class StudentsService {
     return s.length ? s : null;
   }
 
-  private async ensureUniqueEnrollNumber(tx: any, enrollNumber: string, schoolId: string, selfStudentId?: string) {
+  private async ensureUniqueEnrollNumber(
+    tx: any,
+    enrollNumber: string,
+    schoolId: string,
+    selfStudentId?: string,
+  ) {
     const [studentDup, teacherDup] = await Promise.all([
-      tx.student.findFirst({ where: { enrollNumber, schoolId }, select: { id: true } }),
-      tx.teacher.findFirst({ where: { enrollNumber, schoolId }, select: { id: true } }),
+      tx.student.findFirst({
+        where: { enrollNumber, schoolId },
+        select: { id: true },
+      }),
+      tx.teacher.findFirst({
+        where: { enrollNumber, schoolId },
+        select: { id: true },
+      }),
     ]);
 
-    if (teacherDup) throw new BadRequestException(`enrollNumber already exists in this school: ${enrollNumber}`);
+    if (teacherDup)
+      throw new BadRequestException(
+        `enrollNumber already exists in this school: ${enrollNumber}`,
+      );
     if (studentDup && studentDup.id !== selfStudentId)
-      throw new BadRequestException(`enrollNumber already exists in this school: ${enrollNumber}`);
+      throw new BadRequestException(
+        `enrollNumber already exists in this school: ${enrollNumber}`,
+      );
   }
-  
+
   private async linkParentSmsSingle(
     tx: any,
     studentId: string,
@@ -66,7 +86,7 @@ export class StudentsService {
       where: { studentId },
       data: { notifySms: false },
     });
-  
+
     await tx.studentParent.upsert({
       where: { studentId_parentId: { studentId, parentId } },
       update: { notifySms: true, relationship },
@@ -75,11 +95,15 @@ export class StudentsService {
   }
 
   async create(createStudentDto: CreateStudentDto) {
-    if (!createStudentDto.schoolId) throw new BadRequestException('schoolId is required');
-    if (!createStudentDto.classId) throw new BadRequestException('classId is required');
-  
-    const dateOfBirth = createStudentDto.dateOfBirth ? new Date(createStudentDto.dateOfBirth) : undefined;
-  
+    if (!createStudentDto.schoolId)
+      throw new BadRequestException('schoolId is required');
+    if (!createStudentDto.classId)
+      throw new BadRequestException('classId is required');
+
+    const dateOfBirth = createStudentDto.dateOfBirth
+      ? new Date(createStudentDto.dateOfBirth)
+      : undefined;
+
     return this.prisma.$transaction(async (tx) => {
       // 1) optional user create
       let userId: string | null = null;
@@ -95,26 +119,38 @@ export class StudentsService {
         });
         userId = user.id;
       }
-  
+
       // 2) ✅ enrollNumber ONLY if photo exists OR manual provided AND photo exists
       // Rasmni compress qilamiz (3-6MB → ~50-100KB)
-      const rawPhoto = createStudentDto.photo && String(createStudentDto.photo).trim()
-        ? await compressImage(createStudentDto.photo, { maxWidth: 400, maxHeight: 400, quality: 80 })
-        : null;
+      const rawPhoto =
+        createStudentDto.photo && String(createStudentDto.photo).trim()
+          ? await compressImage(createStudentDto.photo, {
+              maxWidth: 400,
+              maxHeight: 400,
+              quality: 80,
+            })
+          : null;
       const hasPhoto = !!rawPhoto;
       let enrollNumber: string | null = null;
-  
+
       if (hasPhoto) {
         enrollNumber = createStudentDto.enrollNumber?.trim()
           ? createStudentDto.enrollNumber.trim()
-          : await this.nextStudentEnrollNumber(tx as any, createStudentDto.schoolId);
-  
-        await this.ensureUniqueEnrollNumber(tx, enrollNumber, createStudentDto.schoolId);
+          : await this.nextStudentEnrollNumber(
+              tx as any,
+              createStudentDto.schoolId,
+            );
+
+        await this.ensureUniqueEnrollNumber(
+          tx,
+          enrollNumber,
+          createStudentDto.schoolId,
+        );
       } else {
         // photo yo'q -> enrollNumber kerak emas
         enrollNumber = null;
       }
-  
+
       // 3) create student
       const student = await tx.student.create({
         data: {
@@ -134,7 +170,7 @@ export class StudentsService {
           billingPlan: createStudentDto.billingPlan ?? undefined,
         },
       });
-  
+
       // 4) ✅ Parent link (many-to-many) + notifySms single
       if (createStudentDto.parent?.phone) {
         const phone = createStudentDto.parent.phone.trim();
@@ -151,7 +187,7 @@ export class StudentsService {
             isTelegramActive: false,
           },
         });
-  
+
         await this.linkParentSmsSingle(
           tx,
           student.id,
@@ -159,7 +195,7 @@ export class StudentsService {
           (createStudentDto.parent.relationship as any) || 'PARENT',
         );
       }
-  
+
       const result = await tx.student.findUnique({
         where: { id: student.id },
         include: {
@@ -170,15 +206,21 @@ export class StudentsService {
         },
       });
 
-      await this.redis.deleteCachePattern(`classes:all:${createStudentDto.schoolId}:*`);
-      await this.redis.deleteCachePattern(`students:list:${createStudentDto.schoolId}:*`);
+      await this.redis.deleteCachePattern(
+        `classes:all:${createStudentDto.schoolId}:*`,
+      );
+      await this.redis.deleteCachePattern(
+        `students:list:${createStudentDto.schoolId}:*`,
+      );
 
       void this.auditLog.log({
         action: 'STUDENT_CREATE',
         entity: 'Student',
         entityId: student.id,
         schoolId: createStudentDto.schoolId,
-        details: { name: `${createStudentDto.firstName} ${createStudentDto.lastName}` },
+        details: {
+          name: `${createStudentDto.firstName} ${createStudentDto.lastName}`,
+        },
       });
 
       return result;
@@ -276,76 +318,98 @@ export class StudentsService {
         parents: {
           include: {
             parent: true,
-          }
+          },
         },
         attendances: { orderBy: { date: 'desc' }, take: 30 },
         payments: { orderBy: { dueDate: 'desc' }, take: 36 }, // 3 yil max
       },
     });
 
-    if (!student) throw new NotFoundException(`Student with ID ${id} not found`);
+    if (!student)
+      throw new NotFoundException(`Student with ID ${id} not found`);
     return student;
   }
 
   async update(id: string, dto: UpdateStudentDto) {
-
     const existing = await this.prisma.student.findUnique({
       where: { id },
       include: { parents: true },
     });
-    if (!existing) throw new NotFoundException(`Student with ID ${id} not found`);
-  
+    if (!existing)
+      throw new NotFoundException(`Student with ID ${id} not found`);
+
     const dateOfBirth = dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined;
-  
+
     return this.prisma.$transaction(async (tx) => {
-      const rawIncoming = dto.photo !== undefined
-        ? this.cleanStr(dto.photo)
-        : dto.faceImage !== undefined
-        ? this.cleanStr(dto.faceImage)
-        : undefined;
+      const rawIncoming =
+        dto.photo !== undefined
+          ? this.cleanStr(dto.photo)
+          : dto.faceImage !== undefined
+            ? this.cleanStr(dto.faceImage)
+            : undefined;
       // ✅ Rasmni compress qilamiz (3-6MB → ~50-100KB)
       const incomingPhoto = rawIncoming
-        ? await compressImage(rawIncoming, { maxWidth: 400, maxHeight: 400, quality: 80 })
+        ? await compressImage(rawIncoming, {
+            maxWidth: 400,
+            maxHeight: 400,
+            quality: 80,
+          })
         : rawIncoming;
       const photoWillBeSetNow =
-        incomingPhoto !== undefined && incomingPhoto !== null && !existing.photo;
-  
+        incomingPhoto !== undefined &&
+        incomingPhoto !== null &&
+        !existing.photo;
+
       let enrollNumberToSet: string | undefined = undefined;
-  
+
       if (photoWillBeSetNow && !existing.enrollNumber) {
         const manualEnroll = this.cleanStr(dto.enrollNumber);
         const candidate = manualEnroll
           ? manualEnroll
           : await this.nextStudentEnrollNumber(tx as any, existing.schoolId);
-  
-        await this.ensureUniqueEnrollNumber(tx, candidate, existing.schoolId, id);
+
+        await this.ensureUniqueEnrollNumber(
+          tx,
+          candidate,
+          existing.schoolId,
+          id,
+        );
         enrollNumberToSet = candidate;
       }
-  
+
       // ✅ If dto.enrollNumber provided but photo not set -> ignore / block
-      if (dto.enrollNumber?.trim() && (!photoWillBeSetNow && !existing.photo)) {
-        throw new BadRequestException('enrollNumber can be assigned only after photo is uploaded');
+      if (dto.enrollNumber?.trim() && !photoWillBeSetNow && !existing.photo) {
+        throw new BadRequestException(
+          'enrollNumber can be assigned only after photo is uploaded',
+        );
       }
-  
 
       const student = await tx.student.update({
         where: { id },
         data: {
           firstName: dto.firstName ?? undefined,
           lastName: dto.lastName ?? undefined,
-          middleName: dto.middleName !== undefined ? this.cleanStr(dto.middleName) : undefined,
+          middleName:
+            dto.middleName !== undefined
+              ? this.cleanStr(dto.middleName)
+              : undefined,
           dateOfBirth,
           gender: dto.gender ?? undefined,
           phone: dto.phone !== undefined ? this.cleanStr(dto.phone) : undefined,
-          telegramId: dto.telegramId !== undefined ? this.cleanStr(dto.telegramId) : undefined,
+          telegramId:
+            dto.telegramId !== undefined
+              ? this.cleanStr(dto.telegramId)
+              : undefined,
           photo: incomingPhoto === undefined ? undefined : incomingPhoto,
-          facePersonId: dto.facePersonId !== undefined ? this.cleanStr(dto.facePersonId) : undefined,
+          facePersonId:
+            dto.facePersonId !== undefined
+              ? this.cleanStr(dto.facePersonId)
+              : undefined,
           enrollNumber: enrollNumberToSet,
           billingPlan: dto.billingPlan ?? undefined,
         },
       });
 
-  
       // ✅ FIX: Parent link update — avval eski linklarni o'chiramiz, keyin yangi upsert
       if (dto.parent?.phone) {
         const phone = dto.parent.phone.trim();
@@ -368,11 +432,15 @@ export class StudentsService {
             isTelegramActive: false,
           },
         });
-  
-        await this.linkParentSmsSingle(tx, student.id, parent.id, (dto.parent.relationship as any) || 'PARENT');
+
+        await this.linkParentSmsSingle(
+          tx,
+          student.id,
+          parent.id,
+          (dto.parent.relationship as any) || 'PARENT',
+        );
       }
 
-  
       const updated = await tx.student.findUnique({
         where: { id: student.id },
         include: {
@@ -395,14 +463,16 @@ export class StudentsService {
     });
   }
 
-  async transferStudent(
-    id: string,
-    classId: string,
-    schoolId?: string,
-  ) {
+  async transferStudent(id: string, classId: string, schoolId?: string) {
     const student = await this.prisma.student.findUnique({
       where: { id },
-      select: { id: true, schoolId: true, classId: true, firstName: true, lastName: true },
+      select: {
+        id: true,
+        schoolId: true,
+        classId: true,
+        firstName: true,
+        lastName: true,
+      },
     });
     if (!student) throw new NotFoundException(`Student not found`);
 
@@ -418,7 +488,9 @@ export class StudentsService {
 
     // Class must belong to target school
     if (targetClass.schoolId !== targetSchoolId) {
-      throw new BadRequestException('Class does not belong to the target school');
+      throw new BadRequestException(
+        'Class does not belong to the target school',
+      );
     }
 
     const oldSchoolId = student.schoolId;
@@ -470,17 +542,18 @@ export class StudentsService {
         parents: { include: { parent: true } },
       },
     });
-  
-    if (!student) throw new NotFoundException(`Student with ID ${id} not found`);
-  
+
+    if (!student)
+      throw new NotFoundException(`Student with ID ${id} not found`);
+
     // ✅ Parent larni yig'ib olamiz
     const parentIds = student.parents.map((sp) => sp.parentId);
-  
+
     await this.prisma.studentParent.deleteMany({ where: { studentId: id } });
     await this.prisma.attendance.deleteMany({ where: { studentId: id } });
     await this.prisma.payment.deleteMany({ where: { studentId: id } });
     await this.prisma.student.delete({ where: { id } });
-  
+
     // ✅ Har bir parentni tekshiramiz — boshqa studentlari yo'q bo'lsa o'chiramiz
     for (const parentId of parentIds) {
       const otherLinks = await this.prisma.studentParent.count({
@@ -521,9 +594,15 @@ export class StudentsService {
     const studentIds = students.map((s) => s.id);
 
     // Delete all related records in bulk
-    await this.prisma.studentParent.deleteMany({ where: { studentId: { in: studentIds } } });
-    await this.prisma.attendance.deleteMany({ where: { studentId: { in: studentIds } } });
-    await this.prisma.payment.deleteMany({ where: { studentId: { in: studentIds } } });
+    await this.prisma.studentParent.deleteMany({
+      where: { studentId: { in: studentIds } },
+    });
+    await this.prisma.attendance.deleteMany({
+      where: { studentId: { in: studentIds } },
+    });
+    await this.prisma.payment.deleteMany({
+      where: { studentId: { in: studentIds } },
+    });
 
     // Delete orphaned parents (parents with no remaining student links)
     const orphanedParents = await this.prisma.parent.findMany({
@@ -539,7 +618,9 @@ export class StudentsService {
     }
 
     // Delete all students
-    const { count } = await this.prisma.student.deleteMany({ where: { schoolId } });
+    const { count } = await this.prisma.student.deleteMany({
+      where: { schoolId },
+    });
 
     // Delete empty classes for the school
     await this.prisma.class.deleteMany({
@@ -557,10 +638,17 @@ export class StudentsService {
       details: { deleted: count, reason: 'Bulk delete by school admin' },
     });
 
-    return { message: `Deleted ${count} students and their related data`, deleted: count };
+    return {
+      message: `Deleted ${count} students and their related data`,
+      deleted: count,
+    };
   }
 
-  async getAttendanceStats(studentId: string, startDate?: Date, endDate?: Date) {
+  async getAttendanceStats(
+    studentId: string,
+    startDate?: Date,
+    endDate?: Date,
+  ) {
     const where: any = { studentId };
 
     if (startDate || endDate) {
@@ -588,7 +676,8 @@ export class StudentsService {
       absent,
       leave,
       holiday,
-      attendanceRate: total > 0 ? (((present + late) / total) * 100).toFixed(2) : '0',
+      attendanceRate:
+        total > 0 ? (((present + late) / total) * 100).toFixed(2) : '0',
     };
   }
 
@@ -617,21 +706,33 @@ export class StudentsService {
 
     const photoSet = new Set(studentsWithPhoto.map((s) => s.id));
 
-    const classMap = new Map<string, {
-      classId: string;
-      className: string;
-      total: number;
-      withPhoto: number;
-      withoutPhoto: number;
-      studentsWithoutPhoto: { id: string; name: string }[];
-    }>();
+    const classMap = new Map<
+      string,
+      {
+        classId: string;
+        className: string;
+        total: number;
+        withPhoto: number;
+        withoutPhoto: number;
+        studentsWithoutPhoto: { id: string; name: string }[];
+      }
+    >();
 
     for (const s of allStudents) {
       const classId = s.class?.id ?? 'NO_CLASS';
-      const className = s.class ? `${s.class.grade}-${s.class.section}` : 'Без класса';
+      const className = s.class
+        ? `${s.class.grade}-${s.class.section}`
+        : 'Без класса';
 
       if (!classMap.has(classId)) {
-        classMap.set(classId, { classId, className, total: 0, withPhoto: 0, withoutPhoto: 0, studentsWithoutPhoto: [] });
+        classMap.set(classId, {
+          classId,
+          className,
+          total: 0,
+          withPhoto: 0,
+          withoutPhoto: 0,
+          studentsWithoutPhoto: [],
+        });
       }
 
       const entry = classMap.get(classId)!;
@@ -640,15 +741,25 @@ export class StudentsService {
         entry.withPhoto++;
       } else {
         entry.withoutPhoto++;
-        entry.studentsWithoutPhoto.push({ id: s.id, name: `${s.firstName} ${s.lastName}` });
+        entry.studentsWithoutPhoto.push({
+          id: s.id,
+          name: `${s.firstName} ${s.lastName}`,
+        });
       }
     }
 
-    const classes = Array.from(classMap.values()).sort((a, b) => a.className.localeCompare(b.className));
+    const classes = Array.from(classMap.values()).sort((a, b) =>
+      a.className.localeCompare(b.className),
+    );
     const total = allStudents.length;
     const withPhoto = photoSet.size;
 
-    const result = { total, withPhoto, withoutPhoto: total - withPhoto, classes };
+    const result = {
+      total,
+      withPhoto,
+      withoutPhoto: total - withPhoto,
+      classes,
+    };
     await this.redis.setCache(cacheKey, result, 120); // 2 daqiqa cache
     return result;
   }

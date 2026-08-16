@@ -39,7 +39,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       if (school.credentialsChangedAt) {
         const tokenIssuedAt = payload.iat * 1000; // JWT iat soniyalarda
         if (tokenIssuedAt < school.credentialsChangedAt.getTime()) {
-          throw new UnauthorizedException('Session expired. Please login again.');
+          throw new UnauthorizedException(
+            'Session expired. Please login again.',
+          );
         }
       }
 

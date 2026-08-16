@@ -5,7 +5,6 @@ import { TelegramService } from '../notifications/telegram.service';
 import { SmsService } from '../notifications/sms.service';
 import { CreateAttendanceDto, UpdateAttendanceDto } from './dto/attendance.dto';
 import { RedisService } from 'src/redis/redis.service';
-import { DashboardService } from 'src/dashboard/dashboard.service';
 import { ConfigService } from '@nestjs/config';
 import { WhatsappService } from 'src/whatsapp/whatsapp.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -329,6 +328,7 @@ export class AttendanceService {
             lateMinutes: lateMinutes > 0 ? lateMinutes : 0,
             lateCount: isLate ? 1 : 0,
             deviceId,
+            checkInPhoto: capturePhoto ?? null, 
           },
         });
 
@@ -412,7 +412,8 @@ export class AttendanceService {
         action: 'CHECK_IN',
       });
     } catch (e) {
-      this.logger.warn('WS emit failed (non-critical):', e?.message);
+      const message = e instanceof Error ? e.message : String(e);
+      this.logger.warn('WS emit failed (non-critical):', message);
     }
 
     return { success: true, action: 'CHECK_IN', attendance };
@@ -426,7 +427,10 @@ export class AttendanceService {
 
     const updated = await this.prisma.attendance.update({
       where: { id: record.id },
-      data: { checkOutTime: now },
+      data: { 
+        checkOutTime: now,
+        checkOutPhoto: capturePhoto ?? null,
+      },
     });
 
     this.logger.log(`🚪 CHECK-OUT: ${person.firstName} | ${now.toTimeString().slice(0, 5)}`);
@@ -465,7 +469,8 @@ export class AttendanceService {
         action: 'CHECK_OUT',
       });
     } catch (e) {
-      this.logger.warn('WS emit failed (non-critical):', e?.message);
+      const message = e instanceof Error ? e.message : String(e);
+      this.logger.warn('WS emit failed (non-critical):', message);
     }
 
     return { success: true, action: 'CHECK_OUT', attendance: updated };
@@ -1401,5 +1406,80 @@ export class AttendanceService {
 
     this.logger.log(`✅ fix-late: ${result.count} records LATE→PRESENT for school ${schoolId}`);
     return { updated: result.count, date: target.toISOString().slice(0, 10) };
+  }
+
+  async getTvFeed(schoolId: string) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+  
+    const records = await this.prisma.attendance.findMany({
+      where: {
+        schoolId,
+        date: { gte: today, lt: tomorrow },
+        status: { in: ['PRESENT', 'LATE'] },
+        checkInTime: { not: null },
+      },
+      orderBy: { checkInTime: 'desc' },
+      take: 100,
+      select: {
+        id: true,
+        status: true,
+        checkInTime: true,
+        checkInPhoto: true,
+        lateMinutes: true,
+        student: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            photo: true,
+            class: { select: { grade: true, section: true } },
+          },
+        },
+        teacher: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            type: true,
+            photo: true,
+          },
+        },
+      },
+    });
+  
+    const TZ = 'Asia/Bishkek';
+  
+    return records.map((r) => {
+      const isStudent = !!r.student;
+      const person = r.student || r.teacher;
+      const name = `${person?.firstName ?? ''} ${person?.lastName ?? ''}`.trim();
+  
+      // checkInPhoto → terminaldan kelgan snapshot
+      // Yo'q bo'lsa → profil foto
+      const rawPhoto = r.checkInPhoto || (isStudent ? r.student?.photo : r.teacher?.photo);
+      const photo = rawPhoto
+        ? rawPhoto.startsWith('data:')
+          ? rawPhoto
+          : `data:image/jpeg;base64,${rawPhoto}`
+        : null;
+  
+      return {
+        id: r.id,
+        name,
+        type: isStudent ? 'STUDENT' : (r.teacher?.type ?? 'TEACHER'),
+        class: r.student ? `${r.student.class?.grade}-${r.student.class?.section}` : null,
+        checkInTime: r.checkInTime?.toLocaleTimeString('ru-RU', {
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: TZ,
+        }),
+        status: r.status,
+        lateMinutes: r.lateMinutes ?? 0,
+        photo,
+      };
+    });
   }
 }

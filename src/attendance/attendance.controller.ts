@@ -231,6 +231,25 @@ export class AttendanceController {
     return this.attendanceService.getTodayAttendance(schoolId, classId);
   }
 
+    // GET /attendance/tv-feed?schoolId=xxx
+// 1. TV Feed
+@Get('tv-feed')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.SUPER_ADMIN, UserRole.MINISTRY, UserRole.DISTRICT_ADMIN,
+       UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR)
+getTvFeed(@Query('schoolId') schoolId: string) {
+  return this.attendanceService.getTvFeed(schoolId);
+}
+
+// 2. Stats today
+@Get('stats/today')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.SUPER_ADMIN, UserRole.MINISTRY, UserRole.DISTRICT_ADMIN,
+       UserRole.SCHOOL_ADMIN, UserRole.DIRECTOR)
+getStatToday(@Query('schoolId') schoolId: string) {
+  return this.attendanceService.getTodayStats(schoolId);
+}
+
   @Get(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(
@@ -279,4 +298,5 @@ export class AttendanceController {
   ) {
     return this.attendanceService.markDailyAbsent(body.schoolId, body.date);
   }
+
 }
